@@ -15,6 +15,15 @@ consumer must do.
 Nothing is released yet. This is phase P0: the contract and the oracle, with no
 evaluator. **There is nothing to install or upgrade.**
 
+### Fixed
+
+- **The capture workbook is rebuilt with holy-sheet 2.11.3**, and the dev
+  requirement is now `^2.11.3`. The first build wrote each row's cells in
+  column-letter order (A, AA, ..., B), and Google Sheets silently dropped 184
+  of its input cells on import, so the first capture computed over blanks and
+  was refused. Same cases and ids; only the workbook bytes and its digest in
+  `request.json` changed.
+
 ### Added
 
 - `SPEC.md`, spec version 1: grammar, value model, coercion, floating-point
