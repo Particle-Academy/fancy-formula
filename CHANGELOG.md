@@ -57,3 +57,14 @@ evaluator. **There is nothing to install or upgrade.**
     that receives a multi-cell array gets a `#REF!` value (SPEC.md 9.3).
   - `StubEngine` returns one row of stub `#N/A` cells, one per declared
     column, for an array output.
+- Violation order and caps for `FORMULA_INPUT_CONSTRAINT` refusals (SPEC.md
+  8.2.3, agreed with MOIC and Prism). One total order on values: input binding
+  by UTF-8 bytes (not declaration order, which JSON does not carry), then row,
+  column, a fixed rule rank, header and canonical JSON. At most 100 violations
+  per input and 500 per request. New refusal members `truncatedViolations`
+  (input -> how many of its violations were not reported) and
+  `truncatedByRequestCap` (how many the 500 cap cut); `violations` now has
+  `maxItems: 500`. `FancyFormula\Violations::refusal()` is the reference
+  implementation. **A host needs to do nothing** unless it relied on the order
+  of `violations`, which was unspecified until now. The evaluation schema's
+  own example was reordered to the canonical order.

@@ -415,9 +415,8 @@ strings, and no equality across kinds (the number `1` never matches the text
   `row` is 1-based and counts the header row (INDEX numbering, as in the
   trace); `column` is always the resolved index, and `header` is added when the
   range has one. `got` is the cell, `allowed` / `min` / `max` what was
-  allowed, `range` the target of `oneOfColumn`. Within one input, violations
-  are row-major, then by column, then in the order `required`, `integer`,
-  `min`, `max`, `oneOf`, `oneOfColumn`.
+  allowed, `range` the target of `oneOfColumn`. Violations are ordered and
+  capped by section 8.2.3.
 - A column key or rule column that does not resolve against the **supplied**
   data — a header text the header row lacks or holds twice, an index past the
   supplied width — is a `columns` violation carrying that `column` or
@@ -428,6 +427,60 @@ strings, and no equality across kinds (the number `1` never matches the text
   `max`, or `oneOf` outside them; `oneOfColumn.input` naming an input that is
   missing or not a range or table; and a `oneOfColumn` on its own column of its
   own range with no `where`, which can never fail.
+
+#### 8.2.3 Violation order and caps (MOIC and Prism, 2026-10-28)
+
+**The same bad input always reports the same violations, in the same order, in
+every port.** An engine finds violations in whatever order its loops run, so
+the refusal is built from all of them by one rule. The PHP reference is
+`FancyFormula\Violations::refusal()`.
+
+1. **Order: a total order on values.** Sort by, in turn:
+   1. `input` — the binding, compared as **UTF-8 bytes** (which is code-point
+      order). Not case-folded, not locale-collated, and **not request
+      declaration order**: JSON object member order is not data, hosts
+      re-serialise, and canonical JSON (the fingerprint) sorts keys, so a
+      declaration order would differ between a host and its own cache. Note
+      that JavaScript's default string sort compares UTF-16 code units and
+      disagrees with code-point order above U+FFFF; a port must compare code
+      points.
+   2. `row`, as a number; a violation with no `row` sorts first.
+   3. `column`, as a number; no `column` sorts first.
+   4. the rule's rank: `type`, `required`, `requiredWhen`, `integer`, `min`,
+      `max`, `oneOf`, `indexInto`, `oneOfRange`, `columns`, `key.sorted`,
+      `key.unique`, `column.required`, `column.integer`, `column.min`,
+      `column.max`, `column.oneOf`, `column.oneOfColumn`.
+   5. `header`, as UTF-8 bytes; none sorts first.
+   6. the violation's canonical JSON (members sorted by name, recursively), as
+      UTF-8 bytes. This last step only separates violations that agree on all
+      of the above, which no rule in this section produces today; it exists so
+      the order is total by construction and never falls back on discovery
+      order.
+
+   So an input's whole-value violations (`required`, `oneOf`, ...) come before
+   its row violations, and rows read top to bottom, columns left to right.
+   Member order **inside** a violation carries no meaning; the PHP reference
+   emits members sorted by name.
+2. **Per-input cap: 100.** Each input reports its first 100 violations in that
+   order.
+3. **Request cap: 500.** The per-input-capped lists, concatenated in input
+   order, are cut at 500. An input late in byte order can therefore report
+   none, which is why it is still named below.
+4. **Counts of what was cut**, both absent when nothing was:
+   - `truncatedViolations: {"<input>": n}` — how many of **that input's**
+     violations are not in `violations`, whatever cut them. Every failing input
+     therefore appears in `violations`, here, or both, and reported plus
+     truncated is every violation found. Emitted in input order; as a JSON
+     object its order is not data.
+   - `truncatedByRequestCap: n` — how many of those the request cap cut (each
+     also counted per input). Present only when `violations` holds exactly 500,
+     and the schema holds it to that.
+
+Example (pinned by a test): `modules` breaks 130 rules and `in0`..`in6` break
+100 each. In byte order `modules` sorts after every `in*`, so `in0`..`in4`
+fill the 500. `truncatedViolations` is `{"in5": 100, "in6": 100, "modules": 130}`
+(30 over its own cap, 100 cut by the request cap) and `truncatedByRequestCap`
+is 300.
 
 ### 8.3 Host policy is never in the request
 

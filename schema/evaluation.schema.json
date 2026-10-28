@@ -63,9 +63,32 @@
         "ok": { "const": false },
         "code": { "const": "FORMULA_INPUT_CONSTRAINT" },
         "message": { "type": "string" },
-        "violations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/violation" } }
+        "violations": {
+          "description": "In the ONE canonical order (SPEC.md section 8.2.3): input binding by UTF-8 bytes, then row (absent first), column (absent first), rule rank, header, and canonical JSON. At most 100 per input and 500 in all; never ordered by discovery order or by JSON object member order.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/violation" }
+        },
+        "truncatedViolations": {
+          "description": "Input binding -> how many of that input's violations are NOT in `violations`, whether cut by the per-input cap (100) or by the request cap (500). Absent when nothing was cut. Reported plus truncated is every violation found.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "truncatedByRequestCap": {
+          "description": "How many violations, each within its input's cap, the request cap of 500 cut. Every one is also counted in truncatedViolations. Present only when `violations` is full.",
+          "type": "integer",
+          "minimum": 1
+        }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": { "required": ["truncatedByRequestCap"] },
+      "then": {
+        "required": ["truncatedViolations"],
+        "properties": { "violations": { "minItems": 500 } }
+      }
     },
     "violation": {
       "type": "object",
@@ -150,8 +173,8 @@
       "code": "FORMULA_INPUT_CONSTRAINT",
       "message": "2 inputs broke their declared constraints; no formula ran.",
       "violations": [
-        { "input": "term_years", "rule": "oneOf", "allowed": [3, 5], "got": 4 },
-        { "input": "grid_5yr", "rule": "key.sorted", "row": 4 }
+        { "input": "grid_5yr", "rule": "key.sorted", "row": 4 },
+        { "input": "term_years", "rule": "oneOf", "allowed": [3, 5], "got": 4 }
       ]
     },
     {
