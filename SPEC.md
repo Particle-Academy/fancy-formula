@@ -369,10 +369,9 @@ A diagnostic is `{code, severity: error|warning, target, offset?, message, relat
 `offset` is a byte offset into that target's formula. `check().ok` is false
 exactly when an error diagnostic exists.
 
-`FORMULA_TYPE_COERCES` and `FORMULA_PERCENT_SUSPICIOUS` are named in the plan;
-`FORMULA_CURRENCY_MIXED`, `FORMULA_LOOKUP_UNSORTED` and `FORMULA_CHECK_FAILED`
-are named here, because the plan describes those situations without naming a
-code.
+`FORMULA_CURRENCY_MIXED` and `FORMULA_CHECK_FAILED` are named here: the plan
+describes a currency-mixing warning and an evaluate() that refuses on check
+errors, but names no code or shape for either. Every other code is the plan's.
 
 ---
 
