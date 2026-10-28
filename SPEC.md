@@ -155,7 +155,7 @@ exchange `read` output feeds straight in.
 | bool | `{"t":"bool","v":true}` | |
 | error | `{"t":"error","v":"#N/A","detail":"..."}` | `detail` mirrors the Sheets tooltip and is NOT contract until captured |
 | empty | `{"t":"empty"}` | distinct from `""` |
-| array | `{"t":"array","rows":[[...]]}` | rectangular; a range reference is a lazy view until materialised. Array outputs are P2 |
+| array | `{"t":"array","rows":[[...]]}` | rectangular; a range reference is a lazy view until materialised. Array outputs are P2 (section 9.3) |
 | lambda | none | can never be an output; reaching one is a `#VALUE!` value |
 
 **HYPOTHESIS H-35**: `TYPE` of an error is 16 and of an array literal is 64.
@@ -305,14 +305,25 @@ re-implement them.
 | `key: {column, sorted, unique}` | range, table | `column` is 1-based; `sorted` is `ascending` or `descending` |
 | `indexInto: "<range input>"` | number | an integer within `1..ROWS(range)` |
 | `oneOfRange: "<range input>"` | scalars | the value appears in that range |
+| `requiredWhen: {input, oneOf}` | all | required only when another input's value is one of `oneOf` (8.2.1) |
+| `columnConstraints: {"<column>": {...}}` | range, table | per-column rules for the data cells (8.2.2) |
 
 A range's top-level `columns` declares how cells are typed (money tagging);
 `constraints.columns` refuses a value whose cells do not fit. Both may be given;
 if both are, they must be equal, or `check()` reports `FORMULA_INPUT_INVALID`.
 
+**Membership** — `oneOf`, `oneOfRange`, `requiredWhen`, a column's `oneOf`,
+`oneOfColumn` and its `where` — uses the engine's own equality, so a constraint
+agrees with what a formula comparing the same values would decide: numbers
+through `Compare::numbers()` (15 significant digits), text case-insensitively
+(H-14, whatever the capture decides), dates and datetimes as their canonical
+strings, and no equality across kinds (the number `1` never matches the text
+`"1"`). An empty cell is never a member of anything.
+
 - `check()` validates the **declared** shape: contradictory rules (`min` above
   `max`, `oneOf` outside `min..max`), and `indexInto` / `oneOfRange` naming an
-  input that is missing or not a range. Each is a `FORMULA_INPUT_INVALID`
+  input that is missing or not a range, plus the `requiredWhen` and
+  `columnConstraints` cases below. Each is a `FORMULA_INPUT_INVALID`
   diagnostic.
 - `evaluate()` validates the **supplied** values **before any formula runs**.
   Any violation refuses the whole request:
@@ -321,9 +332,102 @@ if both are, they must be equal, or `check()` reports `FORMULA_INPUT_INVALID`.
   `{input: "term_years", rule: "oneOf", allowed: [3, 5], got: 4}` or
   `{input: "grid_5yr", rule: "key.sorted", row: 4}`. Rules in a violation are
   `required`, `integer`, `min`, `max`, `oneOf`, `indexInto`, `oneOfRange`,
-  `columns`, `key.sorted`, `key.unique` and `type`.
+  `columns`, `key.sorted`, `key.unique`, `type`, `requiredWhen`,
+  `column.required`, `column.integer`, `column.min`, `column.max`,
+  `column.oneOf` and `column.oneOfColumn`.
 - **No partial results.** Every rule gets a passing and a failing row in
   `formula/check`; a mutant that skips constraint validation must fail them.
+
+#### 8.2.1 `requiredWhen` (MOIC, 2026-10-28)
+
+```json
+"admin_price_entered": {
+  "type": "money", "currency": "USD",
+  "constraints": { "requiredWhen": { "input": "admin_mode", "oneOf": ["entered"] }, "min": 0 }
+}
+```
+
+- The input is required exactly when the **controlling input** was supplied
+  and its value is a member of `oneOf`. The controller is compared after its
+  own type conversion (`"5%"` is `0.05`, money `"950"` is `950`).
+- **An absent controller never triggers the requirement.** Absent reads as
+  empty, and empty is never a member. A host that needs the controller gives
+  it its own `required: true`; that is the one way to say so, and it reports
+  its own `required` violation. A controller that breaks its own rules (say,
+  a value outside its `oneOf`) is still compared: both violations are reported.
+- Violation: `{input, rule: "requiredWhen", when: {input, value}}` — the
+  controller and the value that triggered it.
+- `required: true` beside `requiredWhen` makes the input always required.
+- The controller is an **input**, never a formula: constraints run before any
+  formula does. Chains and cycles (`a` requiredWhen `b`, `b` requiredWhen `a`)
+  are harmless, because only supplied values are compared.
+- `check()` reports `FORMULA_INPUT_INVALID` when `requiredWhen.input` names an
+  input that is not declared, names the input itself, names a range or table
+  (a controller is a scalar), or lists a value the controller can never hold
+  (wrong kind for its type, or outside the controller's own `oneOf`).
+- **No `equals` sugar.** `oneOf: ["entered"]` costs one bracket pair more than
+  `equals: "entered"`; a second spelling would cost a code path, a
+  both-given rule and a conformance row in every port. The schema refuses
+  `equals`.
+
+#### 8.2.2 `columnConstraints` (MOIC, 2026-10-28)
+
+```json
+"modules": {
+  "type": "range", "header": true,
+  "columns": ["text", "text", "text", "number", "money"], "currency": "USD",
+  "constraints": {
+    "key": { "column": 1, "unique": true },
+    "columnConstraints": {
+      "kind":        { "required": true, "oneOf": ["Core", "Advanced"] },
+      "core_module": { "oneOfColumn": { "column": "name", "where": { "column": "kind", "oneOf": ["Core"] } } },
+      "4":           { "required": true, "integer": true, "min": 0 }
+    }
+  }
+}
+```
+
+- **A column key** is a 1-based index written as digits (`"4"`), or a header
+  text when the range or table has a header row. All-digit text always means
+  an index, so a header literally named `"2"` is reached by its index. Header
+  text matches **exactly** (headers are identifiers, not data). Inside a rule,
+  `column` is an integer or a header text.
+- **Per column**: `required` (no data cell is empty), `integer`, `min`, `max`
+  (inclusive; numbers, or `YYYY-MM-DD[THH:MM:SS]` strings for a date or
+  datetime column), `oneOf`, and `oneOfColumn`. The header row is exempt from
+  every rule. An empty cell is checked only by `required`.
+- **`oneOfColumn: {input?, column, where?}`**: each non-empty cell must be a
+  member of the non-empty values in `column` of `input` — by default this same
+  range — among the target's data rows that `where` admits.
+  **`where: {column, oneOf}`** is ONE membership filter on the target's rows,
+  and the only filter there is. No operators, no second condition, no
+  predicates; the schema refuses each. It ships because it is a set filter
+  built in one pass, and MOIC's "core modules only" needs it.
+- **One home per rule, reconciled with what already existed**: cell types stay
+  in `columns` (top-level and `constraints.columns`); ordering and uniqueness
+  stay in `key`. A column rule carries neither, and the schema refuses
+  `type`, `sorted` and `unique` inside one. `integer`, `min` and `max` need the
+  column's declared type to be `number`, `percent` or `money` (or `date` /
+  `datetime` for string bounds), since an undeclared column has no numbers to
+  compare.
+- **Violations** name the input, the rule, the row and the column:
+  `{input: "modules", rule: "column.oneOfColumn", row: 3, column: 3, header: "core_module", got: "Analytics", range: "modules"}`.
+  `row` is 1-based and counts the header row (INDEX numbering, as in the
+  trace); `column` is always the resolved index, and `header` is added when the
+  range has one. `got` is the cell, `allowed` / `min` / `max` what was
+  allowed, `range` the target of `oneOfColumn`. Within one input, violations
+  are row-major, then by column, then in the order `required`, `integer`,
+  `min`, `max`, `oneOf`, `oneOfColumn`.
+- A column key or rule column that does not resolve against the **supplied**
+  data — a header text the header row lacks or holds twice, an index past the
+  supplied width — is a `columns` violation carrying that `column` or
+  `header`.
+- `check()` reports `FORMULA_INPUT_INVALID` for: a header text on a range with
+  no header row; an index past a declared width (`columns`); `integer`, `min`
+  or `max` on a column whose declared type cannot hold them; `min` above
+  `max`, or `oneOf` outside them; `oneOfColumn.input` naming an input that is
+  missing or not a range or table; and a `oneOfColumn` on its own column of its
+  own range with no `where`, which can never fail.
 
 ### 8.3 Host policy is never in the request
 
@@ -342,7 +446,8 @@ supply a clock. The schema refuses those keys outright.
 
 - **success** — `{ok: true, engine, spec: "1", fingerprint, results, traces, warnings}`.
   `results[binding] = {value, display?}`; `display` is the 15-significant-digit
-  general form. Formatting money for a document is the host's job.
+  general form. Formatting money for a document is the host's job. An array
+  output's result is shaped by section 9.3 and has no `display`.
 - **check failed** — `{ok: false, code: "FORMULA_CHECK_FAILED", message, diagnostics}`.
   `evaluate()` runs `check()` first and refuses on any error diagnostic.
 - **constraint refusal** — section 8.2.
@@ -372,6 +477,48 @@ exactly when an error diagnostic exists.
 `FORMULA_CURRENCY_MIXED` and `FORMULA_CHECK_FAILED` are named here: the plan
 describes a currency-mixing warning and an evaluate() that refuses on check
 errors, but names no code or shape for either. Every other code is the plan's.
+The 2026-10-28 additions (`requiredWhen`, `columnConstraints`, array outputs)
+added rules and shapes and **no code**.
+
+### 9.3 Array outputs (MOIC, 2026-10-28)
+
+```json
+"outputs": {
+  "module_lines": { "type": "array", "columns": ["text", "text", "text", "number", "money"], "currency": "USD", "maxRows": 100 }
+}
+```
+
+- An output may be `{type: "array", columns: [type...], maxRows?, currency?}`.
+  Each column is declared exactly as a scalar output of that type would be;
+  `currency` tags the `money` columns. `columns` is required for an array
+  output and `columns` / `maxRows` are refused on a scalar one.
+- Its result is `{value: {t: "array", rows: [[cell...]...]}}`, rectangular,
+  each cell a scalar value. An array result has **no `display`**: the schema
+  refuses one.
+- **Shape is a value question, never an abort.** In the engine that produces
+  arrays (P2):
+  - an **error** value (FILTER matching nothing is `#N/A`) is reported as that
+    scalar error, not wrapped: an error is a legal result for any output;
+  - any other scalar becomes a 1x1 array;
+  - a result whose column count differs from `columns`, or whose rows exceed
+    `maxRows`, is a `#REF!` **value** whose detail says which — Sheets'
+    answer for an array with no room to spill;
+  - the cell count is still bounded by `maxArrayCells`, which aborts with
+    `FORMULA_LIMIT_ARRAY` as for any array.
+- **A scalar output that receives an array** — the formula's top-level result
+  is a range or array, as `=Inputs!C2:D5` or `=FILTER(...)` is — reports its
+  single element when it is 1x1, and otherwise a `#REF!` value whose detail
+  says an array reached a scalar output. This holds in P1 and P2 alike: a
+  scalar output never spills. It concerns the top-level result only; an array
+  in a scalar **argument** is H-11. It is engine-defined, not captured: every
+  capture row returns a scalar.
+- **P1 does not produce arrays.** A P1 engine's `check()` reports
+  `FORMULA_TYPE` (error) on every output declared `type: "array"`, with a
+  message saying array outputs arrive in P2, so `evaluate()` refuses with
+  `FORMULA_CHECK_FAILED`. A host can write the declaration today and get a
+  definite refusal, never a silently scalar answer. `StubEngine` returns the
+  P2 shape — one row of stub `#N/A` errors, one per declared column — so a
+  host can build its rendering now.
 
 ---
 
@@ -532,6 +679,8 @@ Also open, and decided outside the capture:
 - Unicode collation for SORT (P2).
 - How arrays broadcast and pad (P2; partly H-33).
 - Whether a lambda reaching an output is `#VALUE!` (P2).
+- Whether constraint violations are capped per input: a 10,000-row range can
+  break a column rule on every row, and section 8.2 reports every one.
 - PHP 8.4's change to `round()` — moot, because the engine never calls it.
 
 ---

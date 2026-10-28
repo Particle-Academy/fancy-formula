@@ -39,9 +39,11 @@
       "required": ["value"],
       "properties": {
         "value": { "$ref": "trace.schema.json#/$defs/value" },
-        "display": { "type": "string", "description": "The 15-significant-digit general form; YYYY-MM-DD / YYYY-MM-DDTHH:MM:SS for a number tagged date / datetime. Formatting money for a document is the host's job." }
+        "display": { "type": "string", "description": "The 15-significant-digit general form; YYYY-MM-DD / YYYY-MM-DDTHH:MM:SS for a number tagged date / datetime. Formatting money for a document is the host's job. Never present on an array value." }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": { "required": ["value"], "properties": { "value": { "type": "object", "required": ["t"], "properties": { "t": { "const": "array" } } } } },
+      "then": { "not": { "required": ["display"] } }
     },
     "checkFailed": {
       "type": "object",
@@ -74,7 +76,8 @@
         "rule": {
           "enum": [
             "required", "integer", "min", "max", "oneOf", "indexInto", "oneOfRange",
-            "columns", "key.sorted", "key.unique", "type"
+            "columns", "key.sorted", "key.unique", "type", "requiredWhen",
+            "column.required", "column.integer", "column.min", "column.max", "column.oneOf", "column.oneOfColumn"
           ]
         },
         "allowed": {},
@@ -83,7 +86,15 @@
         "max": {},
         "row": { "type": "integer", "minimum": 1 },
         "column": { "type": "integer", "minimum": 1 },
-        "range": { "type": "string" }
+        "header": { "type": "string", "description": "The column's header text, when the range has one." },
+        "range": { "type": "string" },
+        "when": {
+          "type": "object",
+          "description": "requiredWhen only: the controlling input and the value it was supplied with.",
+          "required": ["input", "value"],
+          "properties": { "input": { "type": "string" }, "value": {} },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
@@ -157,6 +168,35 @@
       "diagnostics": [
         { "code": "FORMULA_UNKNOWN_NAME", "severity": "error", "target": "unit_price", "offset": 9, "message": "qty is neither an input nor a formula." }
       ]
+    },
+    {
+      "ok": false,
+      "code": "FORMULA_INPUT_CONSTRAINT",
+      "message": "2 inputs broke their declared constraints; no formula ran.",
+      "violations": [
+        { "input": "admin_price_entered", "rule": "requiredWhen", "when": { "input": "admin_mode", "value": "entered" } },
+        { "input": "modules", "rule": "column.oneOfColumn", "row": 3, "column": 3, "header": "core_module", "got": "Analytics", "range": "modules" }
+      ]
+    },
+    {
+      "ok": true,
+      "engine": "fancy-formula 0.2.0",
+      "spec": "1",
+      "fingerprint": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "results": {
+        "admin_price": { "value": { "t": "number", "v": 950, "format": { "kind": "currency", "currency": "USD" } }, "display": "950" },
+        "module_lines": {
+          "value": {
+            "t": "array",
+            "rows": [
+              [{ "t": "string", "v": "Platform" }, { "t": "string", "v": "Core" }, { "t": "empty" }, { "t": "number", "v": 30 }, { "t": "number", "v": 1000, "format": { "kind": "currency", "currency": "USD" } }],
+              [{ "t": "string", "v": "Analytics" }, { "t": "string", "v": "Advanced" }, { "t": "string", "v": "Platform" }, { "t": "number", "v": 10 }, { "t": "number", "v": 400, "format": { "kind": "currency", "currency": "USD" } }]
+            ]
+          }
+        }
+      },
+      "traces": {},
+      "warnings": []
     }
   ]
 }

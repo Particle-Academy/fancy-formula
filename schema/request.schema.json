@@ -202,10 +202,75 @@
     },
 
     "constraintScalar": { "type": ["number", "string", "boolean"] },
+    "requiredWhen": {
+      "description": "Required only when the CONTROLLING input's supplied value is one of `oneOf` (compared like oneOf). The controller is another INPUT, never a formula. An absent controller never triggers the requirement; give the controller its own `required` to demand it. There is deliberately no `equals` sugar: one spelling, one code path in every port. See SPEC.md section 8.2.",
+      "type": "object",
+      "required": ["input", "oneOf"],
+      "properties": {
+        "input": { "$ref": "#/$defs/binding" },
+        "oneOf": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/constraintScalar" } }
+      },
+      "additionalProperties": false
+    },
+    "columnKey": {
+      "description": "A column of a range: a 1-based index written as digits (\"4\"), or a header text when the range has `header: true`. All-digit text always means an index, so a header named \"2\" is reached by its index.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[1-9][0-9]{0,5}$" },
+        { "type": "string", "minLength": 1, "maxLength": 255, "not": { "pattern": "^[0-9]+$" } }
+      ]
+    },
+    "columnRef": {
+      "description": "A column named inside a rule: a 1-based integer, or a header text (never all digits).",
+      "anyOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "minLength": 1, "maxLength": 255, "not": { "pattern": "^[0-9]+$" } }
+      ]
+    },
+    "columnBound": {
+      "anyOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2})?$" }
+      ]
+    },
+    "columnConstraint": {
+      "description": "Rules for every DATA cell of one column (a header row is exempt). An empty cell is checked only by `required`. Types stay in `columns`, sortedness and uniqueness stay in `key`: each rule has one home. Deliberately small: no general predicates.",
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "required": { "type": "boolean", "description": "No data cell in this column is empty." },
+        "integer": { "type": "boolean" },
+        "min": { "$ref": "#/$defs/columnBound" },
+        "max": { "$ref": "#/$defs/columnBound" },
+        "oneOf": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/constraintScalar" } },
+        "oneOfColumn": { "$ref": "#/$defs/oneOfColumn" }
+      },
+      "additionalProperties": false
+    },
+    "oneOfColumn": {
+      "description": "Each non-empty cell must appear in `column` of `input` (default: this same range), among the data rows `where` admits.",
+      "type": "object",
+      "required": ["column"],
+      "properties": {
+        "input": { "$ref": "#/$defs/binding" },
+        "column": { "$ref": "#/$defs/columnRef" },
+        "where": {
+          "description": "ONE filter on the target range: keep the rows whose `column` value is one of `oneOf`. Not a predicate language.",
+          "type": "object",
+          "required": ["column", "oneOf"],
+          "properties": {
+            "column": { "$ref": "#/$defs/columnRef" },
+            "oneOf": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/constraintScalar" } }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "numberConstraints": {
       "type": "object",
       "properties": {
         "required": { "type": "boolean" },
+        "requiredWhen": { "$ref": "#/$defs/requiredWhen" },
         "integer": { "type": "boolean" },
         "min": { "type": "number" },
         "max": { "type": "number" },
@@ -219,6 +284,7 @@
       "type": "object",
       "properties": {
         "required": { "type": "boolean" },
+        "requiredWhen": { "$ref": "#/$defs/requiredWhen" },
         "oneOf": { "type": "array", "minItems": 1, "items": { "type": "string" } },
         "oneOfRange": { "$ref": "#/$defs/binding" }
       },
@@ -227,7 +293,8 @@
     "booleanConstraints": {
       "type": "object",
       "properties": {
-        "required": { "type": "boolean" }
+        "required": { "type": "boolean" },
+        "requiredWhen": { "$ref": "#/$defs/requiredWhen" }
       },
       "additionalProperties": false
     },
@@ -235,6 +302,7 @@
       "type": "object",
       "properties": {
         "required": { "type": "boolean" },
+        "requiredWhen": { "$ref": "#/$defs/requiredWhen" },
         "min": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2})?$" },
         "max": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2})?$" },
         "oneOf": { "type": "array", "minItems": 1, "items": { "type": "string" } },
@@ -246,6 +314,7 @@
       "type": "object",
       "properties": {
         "required": { "type": "boolean" },
+        "requiredWhen": { "$ref": "#/$defs/requiredWhen" },
         "columns": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/columnType" } },
         "key": {
           "type": "object",
@@ -256,18 +325,32 @@
             "unique": { "type": "boolean" }
           },
           "additionalProperties": false
+        },
+        "columnConstraints": {
+          "description": "Column key -> rules for that column's data cells. Violations carry input, rule (column.*), row (1-based, counting the header row) and column (1-based).",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/columnKey" },
+          "additionalProperties": { "$ref": "#/$defs/columnConstraint" }
         }
       },
       "additionalProperties": false
     },
 
+    "outputScalarType": { "enum": ["number", "percent", "money", "text", "boolean", "date", "datetime"] },
     "output": {
+      "description": "A scalar output, or `type: array` with one declared type per column and an optional row cap. Array outputs are produced from P2; a P1 engine reports FORMULA_TYPE at check() for one (SPEC.md section 9.3).",
       "type": "object",
       "properties": {
-        "type": { "enum": ["number", "percent", "money", "text", "boolean", "date", "datetime"] },
-        "currency": { "$ref": "#/$defs/currency" }
+        "type": { "anyOf": [{ "$ref": "#/$defs/outputScalarType" }, { "const": "array" }] },
+        "currency": { "$ref": "#/$defs/currency" },
+        "columns": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/outputScalarType" } },
+        "maxRows": { "type": "integer", "minimum": 1 }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": { "required": ["type"], "properties": { "type": { "const": "array" } } },
+      "then": { "required": ["columns"] },
+      "else": { "not": { "anyOf": [{ "required": ["columns"] }, { "required": ["maxRows"] }] } }
     },
 
     "limits": {
@@ -353,6 +436,45 @@
         "qty": { "type": "number", "constraints": { "required": true, "integer": true, "min": 1 } },
         "price_breaks": { "type": "range", "header": true, "columns": ["number", "money"], "currency": "USD", "maxRows": 50 }
       }
+    },
+    {
+      "version": 1,
+      "formulas": {
+        "admin_price": "=IF(admin_mode = \"entered\", admin_price_entered, admin_list_price)",
+        "module_lines": "=FILTER(modules, INDEX(modules, , 4) > 0)"
+      },
+      "inputs": {
+        "admin_mode": { "type": "text", "value": "entered", "constraints": { "required": true, "oneOf": ["entered", "list"] } },
+        "admin_price_entered": { "type": "money", "currency": "USD", "value": "950", "constraints": { "requiredWhen": { "input": "admin_mode", "oneOf": ["entered"] }, "min": 0 } },
+        "admin_list_price": { "type": "money", "currency": "USD", "value": "1000" },
+        "modules": {
+          "type": "range",
+          "header": true,
+          "columns": ["text", "text", "text", "number", "money"],
+          "currency": "USD",
+          "rows": [
+            ["name", "kind", "core_module", "seats", "price"],
+            ["Platform", "Core", null, 30, "1000"],
+            ["Analytics", "Advanced", "Platform", 10, "400"],
+            ["Reporting", "Advanced", "Platform", 0, "250"]
+          ],
+          "constraints": {
+            "key": { "column": 1, "unique": true },
+            "columnConstraints": {
+              "name": { "required": true },
+              "kind": { "required": true, "oneOf": ["Core", "Advanced"] },
+              "core_module": { "oneOfColumn": { "column": "name", "where": { "column": "kind", "oneOf": ["Core"] } } },
+              "4": { "required": true, "integer": true, "min": 0 },
+              "price": { "min": 0 }
+            }
+          }
+        }
+      },
+      "outputs": {
+        "admin_price": { "type": "money", "currency": "USD" },
+        "module_lines": { "type": "array", "columns": ["text", "text", "text", "number", "money"], "currency": "USD", "maxRows": 100 }
+      },
+      "trace": "lookups"
     }
   ]
 }

@@ -102,6 +102,95 @@ test('documents that must not validate are refused', function (string $schema, s
     expect($errors)->not->toBe([]);
 })->with('invalid documents');
 
+/*
+ * The three additive rules MOIC's pricing model asked for (2026-10-28):
+ * requiredWhen, columnConstraints (with oneOfColumn + where), and array-typed
+ * outputs. Each valid document below was REFUSED by the schemas before the
+ * addition; each near-miss differs from a valid one in one way and is refused
+ * for that way. The near-misses exist to fail against an over-permissive
+ * schema -- for instance one that accepted any object under columnConstraints.
+ */
+dataset('additive valid documents', [
+    'request: requiredWhen on a money input' => ['request', '{"version":1,"formulas":{"x":"=admin_price_entered"},"inputs":{"admin_mode":{"type":"text","value":"entered","constraints":{"required":true,"oneOf":["entered","list"]}},"admin_price_entered":{"type":"money","currency":"USD","value":"950","constraints":{"requiredWhen":{"input":"admin_mode","oneOf":["entered"]},"min":0}}}}'],
+    'request: requiredWhen on every scalar type' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"n":{"type":"number","constraints":{"requiredWhen":{"input":"b","oneOf":[true]}}},"p":{"type":"percent","constraints":{"requiredWhen":{"input":"b","oneOf":[true]}}},"t":{"type":"text","constraints":{"requiredWhen":{"input":"n","oneOf":[1,2]}}},"b":{"type":"boolean","constraints":{"requiredWhen":{"input":"t","oneOf":["y"]}}},"d":{"type":"date","constraints":{"requiredWhen":{"input":"t","oneOf":["y"]}}},"dt":{"type":"datetime","constraints":{"requiredWhen":{"input":"t","oneOf":["y"]}}}}}'],
+    'request: requiredWhen on a range, controller bound by address' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"Inputs!B2":{"type":"text","value":"custom"},"custom_grid":{"type":"range","constraints":{"requiredWhen":{"input":"Inputs!B2","oneOf":["custom"]}}}}}'],
+    'request: columnConstraints by header and by index, oneOfColumn with where' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"modules":{"type":"range","header":true,"columns":["text","text","text","number","money"],"currency":"USD","rows":[["name","kind","core_module","seats","price"],["Core","Core",null,10,"1000"],["Adv A","Advanced","Core",5,"400"]],"constraints":{"columnConstraints":{"name":{"required":true},"kind":{"required":true,"oneOf":["Core","Advanced"]},"core_module":{"oneOfColumn":{"column":"name","where":{"column":"kind","oneOf":["Core"]}}},"4":{"required":true,"integer":true,"min":0,"max":10000},"price":{"min":0}}}}}}'],
+    'request: oneOfColumn into another range by index' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"catalog":{"type":"range","rows":[["Core"],["Adv A"]]},"lines":{"type":"table","table":{},"constraints":{"columnConstraints":{"1":{"oneOfColumn":{"input":"catalog","column":1}}}}}}}'],
+    'request: column min and max as dates' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","columns":["date"],"constraints":{"columnConstraints":{"1":{"min":"2026-01-01","max":"2026-12-31"}}}}}}'],
+    'request: an array output' => ['request', '{"version":1,"formulas":{"lines":"=FILTER(modules, seats > 0)"},"outputs":{"lines":{"type":"array","columns":["text","text","text","number","money"],"currency":"USD","maxRows":50}}}'],
+    'request: an array output without maxRows' => ['request', '{"version":1,"formulas":{"lines":"=SORT(r)"},"outputs":{"lines":{"type":"array","columns":["text"]}}}'],
+    'evaluation: an array result' => ['evaluation', '{"ok":true,"engine":"fancy-formula 0.2.0","spec":"1","fingerprint":"sha256:0000000000000000000000000000000000000000000000000000000000000000","results":{"lines":{"value":{"t":"array","rows":[[{"t":"string","v":"Core"},{"t":"number","v":1000,"format":{"kind":"currency","currency":"USD"}}]]}}},"traces":{},"warnings":[]}'],
+    'evaluation: requiredWhen and column violations' => ['evaluation', '{"ok":false,"code":"FORMULA_INPUT_CONSTRAINT","violations":[{"input":"admin_price_entered","rule":"requiredWhen","when":{"input":"admin_mode","value":"entered"}},{"input":"modules","rule":"column.oneOfColumn","row":3,"column":3,"header":"core_module","got":"Core X","range":"modules"},{"input":"modules","rule":"column.required","row":2,"column":1,"header":"name"},{"input":"modules","rule":"column.integer","row":2,"column":4,"got":2.5},{"input":"modules","rule":"column.min","row":2,"column":5,"min":0,"got":-1},{"input":"modules","rule":"column.max","row":2,"column":4,"max":10000,"got":20000},{"input":"modules","rule":"column.oneOf","row":2,"column":2,"allowed":["Core","Advanced"],"got":"Pro"}]}'],
+]);
+
+test('documents the additive rules exist to accept are accepted', function (string $schema, string $json) {
+    $errors = validator()->validate(SchemaValidator::decode($json), "{$schema}.schema.json");
+    expect($errors)->toBe([], implode('; ', $errors));
+})->with('additive valid documents');
+
+dataset('additive near-misses', [
+    'request: requiredWhen without oneOf' => ['request', '{"version":1,"formulas":{"x":"=p"},"inputs":{"p":{"type":"number","constraints":{"requiredWhen":{"input":"mode"}}}}}'],
+    'request: requiredWhen with an empty oneOf' => ['request', '{"version":1,"formulas":{"x":"=p"},"inputs":{"p":{"type":"number","constraints":{"requiredWhen":{"input":"mode","oneOf":[]}}}}}'],
+    'request: requiredWhen spelled with equals sugar' => ['request', '{"version":1,"formulas":{"x":"=p"},"inputs":{"p":{"type":"number","constraints":{"requiredWhen":{"input":"mode","equals":"entered"}}}}}'],
+    'request: requiredWhen naming a bare cell' => ['request', '{"version":1,"formulas":{"x":"=p"},"inputs":{"p":{"type":"number","constraints":{"requiredWhen":{"input":"B2","oneOf":[1]}}}}}'],
+    'request: requiredWhen with a null in oneOf' => ['request', '{"version":1,"formulas":{"x":"=p"},"inputs":{"p":{"type":"number","constraints":{"requiredWhen":{"input":"mode","oneOf":[null]}}}}}'],
+    'request: requiredWhen with a general predicate' => ['request', '{"version":1,"formulas":{"x":"=p"},"inputs":{"p":{"type":"number","constraints":{"requiredWhen":{"input":"mode","oneOf":[1],"op":">"}}}}}'],
+    'request: columnConstraints on a scalar' => ['request', '{"version":1,"formulas":{"x":"=n"},"inputs":{"n":{"type":"number","constraints":{"columnConstraints":{"1":{"required":true}}}}}}'],
+    'request: a column key of 0' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"0":{"required":true}}}}}}'],
+    'request: a zero-padded column key' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"01":{"required":true}}}}}}'],
+    'request: an empty column key' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"":{"required":true}}}}}}'],
+    'request: uniqueness in a column (it lives in key)' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"1":{"unique":true}}}}}}'],
+    'request: sortedness in a column (it lives in key)' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"1":{"sorted":"ascending"}}}}}}'],
+    'request: a type in a column (it lives in columns)' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"1":{"type":"number"}}}}}}'],
+    'request: an empty column oneOf' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"1":{"oneOf":[]}}}}}}'],
+    'request: a column min that is neither a number nor a date' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"1":{"min":"low"}}}}}}'],
+    'request: oneOfColumn without a column' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"2":{"oneOfColumn":{"input":"catalog"}}}}}}}'],
+    'request: oneOfColumn with column 0' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"2":{"oneOfColumn":{"column":0}}}}}}}'],
+    'request: oneOfColumn with a numeric-string column' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"2":{"oneOfColumn":{"column":"1"}}}}}}}'],
+    'request: where without oneOf' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"3":{"oneOfColumn":{"column":1,"where":{"column":2}}}}}}}}'],
+    'request: where with a general predicate' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"3":{"oneOfColumn":{"column":1,"where":{"column":2,"op":">","value":5}}}}}}}}'],
+    'request: where with a second condition' => ['request', '{"version":1,"formulas":{"x":"=1"},"inputs":{"r":{"type":"range","constraints":{"columnConstraints":{"3":{"oneOfColumn":{"column":1,"where":[{"column":2,"oneOf":["Core"]}]}}}}}}}'],
+    'request: an array output without columns' => ['request', '{"version":1,"formulas":{"x":"=r"},"outputs":{"x":{"type":"array"}}}'],
+    'request: an array output with empty columns' => ['request', '{"version":1,"formulas":{"x":"=r"},"outputs":{"x":{"type":"array","columns":[]}}}'],
+    'request: an array output with maxRows 0' => ['request', '{"version":1,"formulas":{"x":"=r"},"outputs":{"x":{"type":"array","columns":["number"],"maxRows":0}}}'],
+    'request: an array output nesting an array column' => ['request', '{"version":1,"formulas":{"x":"=r"},"outputs":{"x":{"type":"array","columns":["array"]}}}'],
+    'request: a scalar output with columns' => ['request', '{"version":1,"formulas":{"x":"=r"},"outputs":{"x":{"type":"number","columns":["number"]}}}'],
+    'request: a scalar output with maxRows' => ['request', '{"version":1,"formulas":{"x":"=r"},"outputs":{"x":{"maxRows":5}}}'],
+    'evaluation: an array result with a display' => ['evaluation', '{"ok":true,"engine":"fancy-formula 0.2.0","spec":"1","fingerprint":"sha256:0000000000000000000000000000000000000000000000000000000000000000","results":{"x":{"value":{"t":"array","rows":[[{"t":"number","v":1}]]},"display":"1"}},"traces":{},"warnings":[]}'],
+    'evaluation: a column rule that does not exist' => ['evaluation', '{"ok":false,"code":"FORMULA_INPUT_CONSTRAINT","violations":[{"input":"r","rule":"column.unique","row":2,"column":1}]}'],
+    'evaluation: a requiredWhen violation without its controller' => ['evaluation', '{"ok":false,"code":"FORMULA_INPUT_CONSTRAINT","violations":[{"input":"p","rule":"requiredWhen","when":{"oneOf":["entered"]}}]}'],
+    'evaluation: a column 0 in a violation' => ['evaluation', '{"ok":false,"code":"FORMULA_INPUT_CONSTRAINT","violations":[{"input":"r","rule":"column.required","row":2,"column":0}]}'],
+]);
+
+test('near-misses of the additive rules are refused', function (string $schema, string $json) {
+    $errors = validator()->validate(SchemaValidator::decode($json), "{$schema}.schema.json");
+    expect($errors)->not->toBe([]);
+})->with('additive near-misses');
+
+test('the stub returns a schema-valid ARRAY result for an array output', function () {
+    $request = [
+        'version' => 1,
+        'formulas' => ['lines' => '=FILTER(modules, seats > 0)', 'total' => '=SUM(seats)'],
+        'outputs' => ['lines' => ['type' => 'array', 'columns' => ['text', 'number', 'money'], 'currency' => 'USD'], 'total' => []],
+    ];
+    $result = (new StubEngine)->evaluate($request);
+    expect(validator()->validate(SchemaValidator::fromArray($result), 'evaluation.schema.json'))->toBe([]);
+
+    $lines = $result['results']->lines['value'];
+    expect($lines['t'])->toBe('array');
+    expect($lines['rows'])->toHaveCount(1);
+    expect($lines['rows'][0])->toHaveCount(3);
+    foreach ($lines['rows'][0] as $cell) {
+        expect($cell['t'])->toBe('error');
+        expect($cell['v'])->toBe('#N/A');
+        expect(str_contains($cell['detail'], 'stub'))->toBeTrue();
+    }
+    expect(array_key_exists('display', $result['results']->lines))->toBeFalse();
+    expect($result['traces']->lines['value'])->toBe($lines);
+    // A scalar output beside it stays a scalar.
+    expect($result['results']->total['value']['t'])->toBe('error');
+});
+
 test('the validator refuses a keyword it does not support, rather than skipping it', function () {
     $dir = sys_get_temp_dir().'/ff-schema-'.bin2hex(random_bytes(4));
     mkdir($dir);

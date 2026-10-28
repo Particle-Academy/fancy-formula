@@ -56,11 +56,13 @@ final class StubEngine
             : array_keys($formulas);
         $traceLevel = $request['trace'] ?? 'lookups';
 
-        $value = ['t' => 'error', 'v' => '#N/A', 'detail' => self::DETAIL];
+        $declared = is_array($request['outputs'] ?? null) ? $request['outputs'] : [];
+        $scalar = ['t' => 'error', 'v' => '#N/A', 'detail' => self::DETAIL];
         $results = [];
         $traces = [];
         foreach ($outputs as $binding) {
             $binding = (string) $binding;
+            $value = self::stubValue($declared[$binding] ?? [], $scalar);
             $results[$binding] = ['value' => $value];
             if ($traceLevel !== 'none') {
                 $traces[$binding] = [
@@ -85,6 +87,25 @@ final class StubEngine
             'traces' => (object) $traces,
             'warnings' => [],
         ];
+    }
+
+    /**
+     * An array output gets one row of stub errors, one cell per declared
+     * column: the smallest schema-valid array, still unmistakably computed by
+     * nothing. Every other output gets the scalar stub error.
+     *
+     * @param  mixed  $output  the output declaration
+     * @param  array<string, string>  $scalar
+     * @return array<string, mixed>
+     */
+    private static function stubValue(mixed $output, array $scalar): array
+    {
+        if (! is_array($output) || ($output['type'] ?? null) !== 'array') {
+            return $scalar;
+        }
+        $columns = is_array($output['columns'] ?? null) && $output['columns'] !== [] ? count($output['columns']) : 1;
+
+        return ['t' => 'array', 'rows' => [array_fill(0, $columns, $scalar)]];
     }
 
     /**

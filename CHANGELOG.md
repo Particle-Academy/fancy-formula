@@ -37,3 +37,23 @@ evaluator. **There is nothing to install or upgrade.**
   `scripts/build-capture-workbook.php` with holy-sheet. Not yet captured.
 - Dev dependency `particle-academy/holy-sheet` (first party) for the capture
   generator. No runtime dependencies.
+- Three ADDITIVE request-schema rules from MOIC's real pricing model
+  (2026-10-28). Every document the schemas accepted before still validates, and
+  no stable code was added. **A host needs to do nothing** unless it wants the
+  new rules.
+  - `constraints.requiredWhen: {input, oneOf}` on every input type: required
+    only when another input's supplied value is one of `oneOf`. An absent
+    controller never triggers it. No `equals` sugar; the schema refuses it.
+    Violations carry `rule: "requiredWhen"` and `when: {input, value}`.
+  - `constraints.columnConstraints` on range and table inputs: per-column
+    `required`, `integer`, `min`, `max`, `oneOf` and
+    `oneOfColumn: {input?, column, where?: {column, oneOf}}`, keyed by a
+    1-based index or a header text. Types stay in `columns`, ordering and
+    uniqueness in `key`. Violations carry `rule: "column.*"`, `row`, `column`
+    and `header`.
+  - Array outputs: `outputs.<binding> = {type: "array", columns, maxRows?, currency?}`.
+    The result is a `{t: "array"}` value with no `display`. P1 refuses an array
+    output at `check()` with `FORMULA_TYPE`; P2 produces it. A scalar output
+    that receives a multi-cell array gets a `#REF!` value (SPEC.md 9.3).
+  - `StubEngine` returns one row of stub `#N/A` cells, one per declared
+    column, for an array output.
