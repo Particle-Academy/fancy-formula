@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Particle-Academy/fancy-formula/schema/evaluation.schema.json",
+  "title": "fancy-formula evaluation",
+  "description": "CONTRACT, spec version 1: Prism builds against this file. What Engine::evaluate() returns. Exactly one of: a success with every requested result; a refusal before any formula ran (FORMULA_CHECK_FAILED with the check diagnostics, or FORMULA_INPUT_CONSTRAINT with violations); or an abort because a limit broke. There are NO partial results: a run that hits a limit is never reported partly as success. See SPEC.md section 9.",
+  "oneOf": [
+    { "$ref": "#/$defs/success" },
+    { "$ref": "#/$defs/checkFailed" },
+    { "$ref": "#/$defs/constraintRefusal" },
+    { "$ref": "#/$defs/abort" }
+  ],
+
+  "$defs": {
+    "engine": { "type": "string", "pattern": "^fancy-formula [0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$" },
+    "success": {
+      "type": "object",
+      "required": ["ok", "engine", "spec", "fingerprint", "results", "traces", "warnings"],
+      "properties": {
+        "ok": { "const": true },
+        "engine": { "$ref": "#/$defs/engine" },
+        "spec": { "const": "1" },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 of the canonical JSON of (normalised formulas, inputs, clock value, seed digest, provider responses, engine and spec version). Same fingerprint, same results."
+        },
+        "results": { "type": "object", "additionalProperties": { "$ref": "#/$defs/result" } },
+        "traces": {
+          "type": "object",
+          "description": "One per reported output; empty when the request asked for trace none.",
+          "additionalProperties": { "$ref": "trace.schema.json" }
+        },
+        "warnings": { "type": "array", "items": { "$ref": "check-report.schema.json#/$defs/diagnostic" } }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": ["value"],
+      "properties": {
+        "value": { "$ref": "trace.schema.json#/$defs/value" },
+        "display": { "type": "string", "description": "The 15-significant-digit general form; YYYY-MM-DD / YYYY-MM-DDTHH:MM:SS for a number tagged date / datetime. Formatting money for a document is the host's job." }
+      },
+      "additionalProperties": false
+    },
+    "checkFailed": {
+      "type": "object",
+      "required": ["ok", "code", "message", "diagnostics"],
+      "properties": {
+        "ok": { "const": false },
+        "code": { "const": "FORMULA_CHECK_FAILED" },
+        "message": { "type": "string" },
+        "diagnostics": { "type": "array", "minItems": 1, "items": { "$ref": "check-report.schema.json#/$defs/diagnostic" } }
+      },
+      "additionalProperties": false
+    },
+    "constraintRefusal": {
+      "type": "object",
+      "required": ["ok", "code", "violations"],
+      "properties": {
+        "ok": { "const": false },
+        "code": { "const": "FORMULA_INPUT_CONSTRAINT" },
+        "message": { "type": "string" },
+        "violations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/violation" } }
+      },
+      "additionalProperties": false
+    },
+    "violation": {
+      "type": "object",
+      "required": ["input", "rule"],
+      "description": "One broken input constraint. Further members say what was allowed and what arrived (allowed, got, min, max, row, column, range).",
+      "properties": {
+        "input": { "type": "string" },
+        "rule": {
+          "enum": [
+            "required", "integer", "min", "max", "oneOf", "indexInto", "oneOfRange",
+            "columns", "key.sorted", "key.unique", "type"
+          ]
+        },
+        "allowed": {},
+        "got": {},
+        "min": {},
+        "max": {},
+        "row": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "range": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "abort": {
+      "type": "object",
+      "required": ["ok", "code", "message"],
+      "properties": {
+        "ok": { "const": false },
+        "code": {
+          "enum": [
+            "FORMULA_LIMIT_RANGE", "FORMULA_LIMIT_ARRAY", "FORMULA_LIMIT_LAMBDA_DEPTH", "FORMULA_LIMIT_STEPS",
+            "FORMULA_LIMIT_TEXT", "FORMULA_LIMIT_CELLS", "FORMULA_LIMIT_TIME"
+          ]
+        },
+        "message": { "type": "string" },
+        "at": { "type": "string", "description": "The binding being evaluated when the limit broke." },
+        "limit": { "type": "integer", "minimum": 1, "description": "The effective limit that broke (the stricter of host and request)." }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "examples": [
+    {
+      "ok": true,
+      "engine": "fancy-formula 0.1.0",
+      "spec": "1",
+      "fingerprint": "sha256:5d41402abc4b2a76b9719d911017c592ae2b6f7d6c4a8b1e9f0a3c2d1e0f9a8b",
+      "results": {
+        "unit_price": { "value": { "t": "number", "v": 9.75 }, "display": "9.75" },
+        "Quote!E5": { "value": { "t": "number", "v": 1111.5, "format": { "kind": "currency", "currency": "USD" } }, "display": "1111.5" },
+        "due": { "value": { "t": "number", "v": 46322, "format": { "kind": "date" } }, "display": "2026-10-27" },
+        "label": { "value": { "t": "error", "v": "#N/A", "detail": "ILLUSTRATIVE: no row matches 51. Detail texts are not contract until captured."} }
+      },
+      "traces": {
+        "unit_price": {
+          "formula": "=VLOOKUP(qty, price_breaks, 2, TRUE)",
+          "value": { "t": "number", "v": 9.75 },
+          "reads": [{ "ref": "qty", "kind": "name", "source": "input", "value": { "t": "number", "v": 120 } }],
+          "dependsOn": [],
+          "steps": [],
+          "volatile": { "clock": null, "randomDraws": 0 },
+          "external": [],
+          "truncated": false
+        }
+      },
+      "warnings": [
+        { "code": "FORMULA_LOOKUP_UNSORTED", "severity": "warning", "target": "label", "message": "Approximate match over an unsorted column; the result follows Sheets' search and may surprise a reader." }
+      ]
+    },
+    {
+      "ok": false,
+      "code": "FORMULA_INPUT_CONSTRAINT",
+      "message": "2 inputs broke their declared constraints; no formula ran.",
+      "violations": [
+        { "input": "term_years", "rule": "oneOf", "allowed": [3, 5], "got": 4 },
+        { "input": "grid_5yr", "rule": "key.sorted", "row": 4 }
+      ]
+    },
+    {
+      "ok": false,
+      "code": "FORMULA_LIMIT_STEPS",
+      "message": "Evaluation exceeded 50000 steps.",
+      "at": "Quote!E5",
+      "limit": 50000
+    },
+    {
+      "ok": false,
+      "code": "FORMULA_CHECK_FAILED",
+      "message": "check() reported 1 error; nothing was evaluated.",
+      "diagnostics": [
+        { "code": "FORMULA_UNKNOWN_NAME", "severity": "error", "target": "unit_price", "offset": 9, "message": "qty is neither an input nor a formula." }
+      ]
+    }
+  ]
+}

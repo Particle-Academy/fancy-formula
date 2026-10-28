@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Particle-Academy/fancy-formula/schema/check-report.schema.json",
+  "title": "fancy-formula check report",
+  "description": "CONTRACT, spec version 1: Prism builds against this file. What Engine::check() returns: static analysis with no data (the save-time call). `ok` is false exactly when at least one diagnostic has severity error. A diagnostic code is never a spreadsheet error value, and a #... value is never a diagnostic. See SPEC.md section 9.",
+  "type": "object",
+  "required": ["ok", "engine", "spec", "diagnostics"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "engine": { "type": "string", "pattern": "^fancy-formula [0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$" },
+    "spec": { "const": "1" },
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+    "references": {
+      "description": "Per formula binding, what Formula::references() reports. Both branches of IF/IFS/SWITCH are read: a static question has no run.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/references" }
+    }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "diagnosticCode": {
+      "enum": [
+        "FORMULA_SYNTAX", "FORMULA_TOO_LONG", "FORMULA_TOO_DEEP",
+        "FORMULA_UNKNOWN_FUNCTION", "FORMULA_UNKNOWN_NAME", "FORMULA_CIRCULAR", "FORMULA_ARITY",
+        "FORMULA_TYPE", "FORMULA_REFUSED_FUNCTION", "FORMULA_NEEDS_CLOCK", "FORMULA_NEEDS_SEED",
+        "FORMULA_INPUT_INVALID", "FORMULA_DYNAMIC_REFERENCE",
+        "FORMULA_TYPE_COERCES", "FORMULA_PERCENT_SUSPICIOUS", "FORMULA_CURRENCY_MIXED", "FORMULA_LOOKUP_UNSORTED"
+      ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["code", "severity", "target", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/diagnosticCode" },
+        "severity": { "enum": ["error", "warning"] },
+        "target": { "type": "string", "description": "The formula or input binding the diagnostic is about." },
+        "offset": { "type": "integer", "minimum": 0, "description": "Byte offset into that formula's source, when there is one." },
+        "message": { "type": "string" },
+        "related": {
+          "type": "array",
+          "description": "For FORMULA_CIRCULAR: the cycle path, in order, closing on the first binding.",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "references": {
+      "type": "object",
+      "required": ["names", "cells", "ranges", "functions", "volatile", "external", "dynamic"],
+      "properties": {
+        "names": { "$ref": "#/$defs/sortedStrings" },
+        "cells": { "$ref": "#/$defs/sortedStrings" },
+        "ranges": { "$ref": "#/$defs/sortedStrings" },
+        "functions": { "$ref": "#/$defs/sortedStrings" },
+        "volatile": { "$ref": "#/$defs/sortedStrings" },
+        "external": { "$ref": "#/$defs/sortedStrings" },
+        "dynamic": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "sortedStrings": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+  },
+
+  "examples": [
+    {
+      "ok": true,
+      "engine": "fancy-formula 0.1.0",
+      "spec": "1",
+      "diagnostics": [],
+      "references": {
+        "unit_price": {
+          "names": ["price_breaks", "qty"], "cells": [], "ranges": [],
+          "functions": ["VLOOKUP"], "volatile": [], "external": [], "dynamic": false
+        }
+      }
+    },
+    {
+      "ok": false,
+      "engine": "fancy-formula 0.1.0",
+      "spec": "1",
+      "diagnostics": [
+        { "code": "FORMULA_CIRCULAR", "severity": "error", "target": "a", "message": "a depends on itself through b.", "related": ["a", "b", "a"] },
+        { "code": "FORMULA_NEEDS_CLOCK", "severity": "error", "target": "due", "offset": 1, "message": "TODAY() needs a host clock, and none is configured." },
+        { "code": "FORMULA_PERCENT_SUSPICIOUS", "severity": "warning", "target": "discount", "message": "discount is a percent declared as 5; did you mean 0.05 or \"5%\"?" }
+      ]
+    },
+    {
+      "ok": false,
+      "engine": "fancy-formula 0.1.0",
+      "spec": "1",
+      "diagnostics": [
+        { "code": "FORMULA_SYNTAX", "severity": "error", "target": "x", "offset": 4, "message": "Unexpected '|'." },
+        { "code": "FORMULA_REFUSED_FUNCTION", "severity": "error", "target": "fx", "offset": 1, "message": "GOOGLEFINANCE needs a provider, and none is registered." }
+      ]
+    }
+  ]
+}

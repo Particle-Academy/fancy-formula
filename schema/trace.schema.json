@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Particle-Academy/fancy-formula/schema/trace.schema.json",
+  "title": "fancy-formula trace (one per output)",
+  "description": "CONTRACT, spec version 1: Prism builds against this file. One trace per reported output: what it read, which lookups and criteria it ran, and what each returned, so a quote footnote can say WHY. Levels: none (no traces), lookups (default: reads plus lookup and criteria steps), full (every function call). Row and column numbers are 1-based within the range and COUNT the header row (INDEX numbering). See SPEC.md section 10.",
+  "type": "object",
+  "required": ["formula", "value", "reads", "dependsOn", "steps", "volatile", "external", "truncated"],
+  "properties": {
+    "formula": { "type": "string", "description": "The normalised formula text. Surfaced into a document it is TEXT: write it as an explicit string cell, never a bare string (SPEC.md section 11)." },
+    "value": { "$ref": "#/$defs/value" },
+    "reads": { "type": "array", "items": { "$ref": "#/$defs/read" } },
+    "dependsOn": { "type": "array", "items": { "type": "string" }, "description": "Other formula bindings this one read, in evaluation order." },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+    "volatile": {
+      "type": "object",
+      "required": ["clock", "randomDraws"],
+      "properties": {
+        "clock": { "type": ["string", "null"], "description": "The host clock's local date-time and IANA zone, when NOW/TODAY were read." },
+        "randomDraws": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "external": {
+      "type": "array",
+      "description": "Every provider call and its response. Part of the fingerprint, so a run replays from its trace.",
+      "items": {
+        "type": "object",
+        "required": ["fn", "args", "response"],
+        "properties": {
+          "fn": { "type": "string" },
+          "args": { "type": "array", "items": { "$ref": "#/$defs/value" } },
+          "response": { "$ref": "#/$defs/value" },
+          "elapsedMs": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "truncated": { "type": "boolean", "description": "The trace hit its own step limit (or a matchedRows cap). Never an abort." },
+    "formulaMetadataIgnored": { "type": "array", "items": { "type": "string" }, "description": "Table inputs whose cells carried formula metadata that was ignored." }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "errorCode": { "enum": ["#N/A", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#NULL!", "#ERROR!"] },
+    "format": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["date", "datetime", "percent", "currency"] },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      },
+      "additionalProperties": false
+    },
+    "scalarValue": {
+      "description": "One cell, in the exchange cell vocabulary (fancy-conformance suites/exchange/SPEC.md section 3.2). A spreadsheet error is a VALUE, never a diagnostic code.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["t", "v"],
+          "properties": { "t": { "const": "number" }, "v": { "type": "number" }, "format": { "$ref": "#/$defs/format" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["t", "v"],
+          "properties": { "t": { "const": "string" }, "v": { "type": "string" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["t", "v"],
+          "properties": { "t": { "const": "bool" }, "v": { "type": "boolean" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["t", "v"],
+          "properties": { "t": { "const": "error" }, "v": { "$ref": "#/$defs/errorCode" }, "detail": { "type": "string" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["t"],
+          "properties": { "t": { "const": "empty" } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "value": {
+      "oneOf": [
+        { "$ref": "#/$defs/scalarValue" },
+        {
+          "type": "object",
+          "required": ["t", "rows"],
+          "properties": {
+            "t": { "const": "array" },
+            "rows": { "type": "array", "minItems": 1, "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/scalarValue" } } }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "read": {
+      "type": "object",
+      "required": ["ref", "kind", "source"],
+      "properties": {
+        "ref": { "type": "string" },
+        "kind": { "enum": ["name", "cell", "range"] },
+        "source": { "enum": ["input", "formula"] },
+        "value": { "$ref": "#/$defs/value" },
+        "shape": { "type": "array", "prefixItems": [{ "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }], "minItems": 2, "maxItems": 2, "description": "[rows, columns] of a range read; its value is summarised by digest instead of inlined." },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "position": {
+      "type": "object",
+      "required": ["row", "key"],
+      "properties": { "row": { "type": "integer", "minimum": 1 }, "key": {} },
+      "additionalProperties": false
+    },
+    "lookup": {
+      "type": "object",
+      "required": ["key", "range", "match", "sorted", "probes"],
+      "properties": {
+        "key": { "$ref": "#/$defs/value" },
+        "range": { "type": "string" },
+        "match": {
+          "oneOf": [
+            { "type": "null", "description": "No match: the step's result carries the #N/A and its detail." },
+            {
+              "type": "object",
+              "required": ["row", "column", "cell"],
+              "properties": {
+                "row": { "type": "integer", "minimum": 1 },
+                "column": { "type": "integer", "minimum": 1 },
+                "cell": { "type": ["string", "null"], "description": "Absolute address when the range is cell-bound; null for a name-bound range." },
+                "rowValues": { "type": "array" },
+                "header": { "type": ["array", "null"] }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "bracket": {
+          "type": "object",
+          "required": ["from", "to"],
+          "description": "Approximate match only: the breakpoint row taken and the next one (null when the match is the last row).",
+          "properties": {
+            "from": { "$ref": "#/$defs/position" },
+            "to": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/position" }] }
+          },
+          "additionalProperties": false
+        },
+        "returned": {
+          "type": "object",
+          "required": ["row", "column", "value"],
+          "properties": {
+            "row": { "type": "integer", "minimum": 1 },
+            "column": { "type": "integer", "minimum": 1 },
+            "value": { "$ref": "#/$defs/value" }
+          },
+          "additionalProperties": false
+        },
+        "sorted": { "type": "boolean", "description": "The engine's check that the lookup column is in order. false still runs Sheets' search exactly, and adds warning FORMULA_LOOKUP_UNSORTED." },
+        "probes": { "type": "integer", "minimum": 0, "description": "Comparisons the search made." }
+      },
+      "additionalProperties": false
+    },
+    "criteria": {
+      "type": "object",
+      "required": ["criteria", "parsed", "matchedRows"],
+      "properties": {
+        "criteria": { "type": "string" },
+        "parsed": {
+          "type": "object",
+          "required": ["op", "value"],
+          "properties": {
+            "op": { "enum": ["=", "<>", "<", "<=", ">", ">="] },
+            "value": {},
+            "wildcard": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "matchedRows": { "type": "array", "maxItems": 1000, "items": { "type": "integer", "minimum": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "required": ["id", "fn", "span", "result"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "fn": { "type": "string", "pattern": "^[A-Z][A-Z0-9._]*$" },
+        "span": { "type": "array", "prefixItems": [{ "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }], "minItems": 2, "maxItems": 2, "description": "[start, end) byte offsets into the normalised formula." },
+        "mode": { "enum": ["exact", "approximate", "wildcard", "binary", "reverse"] },
+        "lookup": { "$ref": "#/$defs/lookup" },
+        "criteria": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/criteria" } },
+        "result": { "$ref": "#/$defs/value" }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "examples": [
+    {
+      "formula": "=VLOOKUP(qty, price_breaks, 2, TRUE)",
+      "value": { "t": "number", "v": 9.75 },
+      "reads": [
+        { "ref": "qty", "kind": "name", "source": "input", "value": { "t": "number", "v": 120 } },
+        { "ref": "price_breaks", "kind": "name", "source": "input", "shape": [5, 2], "digest": "sha256:9f2c1a8e4b7d6c5a3f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a" }
+      ],
+      "dependsOn": [],
+      "steps": [
+        {
+          "id": 1, "fn": "VLOOKUP", "span": [1, 37], "mode": "approximate",
+          "lookup": {
+            "key": { "t": "number", "v": 120 },
+            "range": "price_breaks",
+            "match": { "row": 4, "column": 2, "cell": null, "rowValues": [100, 9.75], "header": ["min_qty", "unit_price"] },
+            "bracket": { "from": { "row": 4, "key": 100 }, "to": { "row": 5, "key": 500 } },
+            "returned": { "row": 4, "column": 2, "value": { "t": "number", "v": 9.75 } },
+            "sorted": true,
+            "probes": 3
+          },
+          "result": { "t": "number", "v": 9.75 }
+        }
+      ],
+      "volatile": { "clock": null, "randomDraws": 0 },
+      "external": [],
+      "truncated": false
+    },
+    {
+      "formula": "=SUMIF(qtys, \">=100\", totals)",
+      "value": { "t": "number", "v": 1840 },
+      "reads": [
+        { "ref": "Orders!A2:A6", "kind": "range", "source": "input", "shape": [5, 1], "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001" },
+        { "ref": "Orders!B2:B6", "kind": "range", "source": "input", "shape": [5, 1], "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002" }
+      ],
+      "dependsOn": [],
+      "steps": [
+        {
+          "id": 1, "fn": "SUMIF", "span": [1, 30],
+          "criteria": [{ "criteria": ">=100", "parsed": { "op": ">=", "value": 100 }, "matchedRows": [3, 4, 5] }],
+          "result": { "t": "number", "v": 1840 }
+        }
+      ],
+      "volatile": { "clock": null, "randomDraws": 0 },
+      "external": [],
+      "truncated": false
+    },
+    {
+      "formula": "=INDEX(accel_options, accel_choice)",
+      "value": { "t": "error", "v": "#REF!", "detail": "ILLUSTRATIVE: row 9 is outside 1..5. Whether Sheets says #REF! or #NUM! here is capture rows A-0029 and E-0235." },
+      "reads": [
+        { "ref": "accel_options", "kind": "name", "source": "input", "shape": [5, 1], "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003" },
+        { "ref": "accel_choice", "kind": "name", "source": "input", "value": { "t": "number", "v": 9 } }
+      ],
+      "dependsOn": [],
+      "steps": [
+        {
+          "id": 1, "fn": "INDEX", "span": [1, 35], "mode": "exact",
+          "lookup": { "key": { "t": "number", "v": 9 }, "range": "accel_options", "match": null, "sorted": true, "probes": 0 },
+          "result": { "t": "error", "v": "#REF!", "detail": "ILLUSTRATIVE: row 9 is outside 1..5. Whether Sheets says #REF! or #NUM! here is capture rows A-0029 and E-0235." }
+        }
+      ],
+      "volatile": { "clock": null, "randomDraws": 0 },
+      "external": [],
+      "truncated": false
+    }
+  ]
+}

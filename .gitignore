@@ -1,0 +1,8 @@
+vendor/
+.phpunit.cache/
+composer.lock
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/

@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Particle-Academy/fancy-formula/schema/request.schema.json",
+  "title": "fancy-formula request",
+  "description": "What a host (for example Prism's doMath) forwards to Engine::check() and Engine::evaluate(). CONTRACT, spec version 1: Prism builds against this file. Formulas are code; every input is a value and never reaches the lexer. Policy (clock, seed, providers, function allowlist, limit ceilings) is host-built constructor state and can NEVER arrive here; a request may only TIGHTEN limits. check() takes the same shape with `value` and `rows` omitted. See SPEC.md section 8.",
+  "type": "object",
+  "required": ["version", "formulas"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "formulas": {
+      "description": "Binding -> formula source. A binding is a name or a cell/range address. The formula is code: an optional leading '=', US-locale syntax.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/binding" },
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 65536 }
+    },
+    "inputs": {
+      "description": "Binding -> typed input declaration. A missing input is EMPTY unless its constraints say required.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/binding" },
+      "additionalProperties": { "$ref": "#/$defs/input" }
+    },
+    "names": {
+      "description": "Named ranges that alias cells: name -> address.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/address" }
+    },
+    "outputs": {
+      "description": "Which bindings to report, each with an optional declared type. Absent means every formula binding.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/binding" },
+      "additionalProperties": { "$ref": "#/$defs/output" }
+    },
+    "trace": { "enum": ["none", "lookups", "full"], "default": "lookups" },
+    "limits": { "$ref": "#/$defs/limits" }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "name": {
+      "description": "A named range or named input. Must not read as a cell address (A1, $AB$12), because the grammar could not tell the two apart.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.]{0,254}$",
+      "not": { "pattern": "^[A-Za-z]{1,3}[0-9]+$" }
+    },
+    "address": {
+      "description": "A sheet-qualified cell or rectangular range: Sheet!A1, 'My Sheet'!A1:B5. Absolute markers ($) are accepted and ignored.",
+      "type": "string",
+      "pattern": "^(?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_]*)!\\$?[A-Z]{1,3}\\$?[0-9]{1,7}(?::\\$?[A-Z]{1,3}\\$?[0-9]{1,7})?$"
+    },
+    "binding": {
+      "anyOf": [{ "$ref": "#/$defs/name" }, { "$ref": "#/$defs/address" }]
+    },
+    "decimalString": { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$" },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "datetime": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$" },
+    "columnType": { "enum": ["number", "percent", "money", "text", "boolean", "date", "datetime", "any"] },
+
+    "input": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["number", "percent", "money", "text", "boolean", "date", "datetime", "range", "table"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "number" } } }, "then": { "$ref": "#/$defs/numberInput" } },
+        { "if": { "properties": { "type": { "const": "percent" } } }, "then": { "$ref": "#/$defs/percentInput" } },
+        { "if": { "properties": { "type": { "const": "money" } } }, "then": { "$ref": "#/$defs/moneyInput" } },
+        { "if": { "properties": { "type": { "const": "text" } } }, "then": { "$ref": "#/$defs/textInput" } },
+        { "if": { "properties": { "type": { "const": "boolean" } } }, "then": { "$ref": "#/$defs/booleanInput" } },
+        { "if": { "properties": { "type": { "const": "date" } } }, "then": { "$ref": "#/$defs/dateInput" } },
+        { "if": { "properties": { "type": { "const": "datetime" } } }, "then": { "$ref": "#/$defs/datetimeInput" } },
+        { "if": { "properties": { "type": { "const": "range" } } }, "then": { "$ref": "#/$defs/rangeInput" } },
+        { "if": { "properties": { "type": { "const": "table" } } }, "then": { "$ref": "#/$defs/tableInput" } }
+      ]
+    },
+
+    "numberInput": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "number" },
+        "value": { "anyOf": [{ "type": "number" }, { "$ref": "#/$defs/decimalString" }] },
+        "constraints": { "$ref": "#/$defs/numberConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "percentInput": {
+      "description": "A fraction (0.05) or a string ending in % (\"5%\"). A bare number above 1 is accepted with warning FORMULA_PERCENT_SUSPICIOUS (D6).",
+      "type": "object",
+      "properties": {
+        "type": { "const": "percent" },
+        "value": { "anyOf": [{ "type": "number" }, { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?%$" }] },
+        "constraints": { "$ref": "#/$defs/numberConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "moneyInput": {
+      "type": "object",
+      "required": ["currency"],
+      "properties": {
+        "type": { "const": "money" },
+        "value": { "anyOf": [{ "type": "number" }, { "$ref": "#/$defs/decimalString" }] },
+        "currency": { "$ref": "#/$defs/currency" },
+        "constraints": { "$ref": "#/$defs/numberConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "textInput": {
+      "description": "Text is DATA. It is never parsed: {\"type\":\"text\",\"value\":\"=1+1\"} is the four-character string =1+1.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "text" },
+        "value": { "type": "string" },
+        "constraints": { "$ref": "#/$defs/textConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "booleanInput": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "boolean" },
+        "value": { "type": "boolean" },
+        "constraints": { "$ref": "#/$defs/booleanConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "dateInput": {
+      "description": "A real calendar date. Becomes a serial number (days since 1899-12-30) tagged date.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "date" },
+        "value": { "$ref": "#/$defs/date" },
+        "constraints": { "$ref": "#/$defs/dateConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "datetimeInput": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "datetime" },
+        "value": { "$ref": "#/$defs/datetime" },
+        "constraints": { "$ref": "#/$defs/dateConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "rangeInput": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "range" },
+        "rows": {
+          "description": "Rectangular: every row the same length. Omitted for check().",
+          "type": "array",
+          "items": { "type": "array", "items": { "$ref": "#/$defs/rangeCell" } }
+        },
+        "header": { "type": "boolean", "description": "The first row is a header. It still counts in row numbering (INDEX numbering)." },
+        "columns": { "type": "array", "items": { "$ref": "#/$defs/columnType" }, "description": "How each column's cells are typed (money tags them with `currency`)." },
+        "currency": { "$ref": "#/$defs/currency" },
+        "maxRows": { "type": "integer", "minimum": 1, "description": "check() only: the largest range the host will supply, so limits can be checked without data." },
+        "constraints": { "$ref": "#/$defs/rangeConstraints" }
+      },
+      "additionalProperties": false
+    },
+    "tableInput": {
+      "description": "An exchange `table` item, as-is (fancy-conformance suites/exchange/SPEC.md section 3.1). Spans flatten into the anchor cell; a cell's `formula` metadata is IGNORED and recorded in the trace as formulaMetadataIgnored.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "table" },
+        "table": { "type": "object" },
+        "constraints": { "$ref": "#/$defs/rangeConstraints" }
+      },
+      "additionalProperties": false
+    },
+
+    "rangeCell": {
+      "anyOf": [
+        { "type": "null", "description": "empty" },
+        { "type": ["number", "string", "boolean"], "description": "A JSON scalar. A string is text and is never parsed." },
+        {
+          "type": "object",
+          "description": "A typed cell, as an input declaration's type + value.",
+          "required": ["type", "value"],
+          "properties": {
+            "type": { "enum": ["number", "percent", "money", "text", "boolean", "date", "datetime"] },
+            "value": { "type": ["number", "string", "boolean"] },
+            "currency": { "$ref": "#/$defs/currency" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "An exchange cell {t, v}.",
+          "required": ["t"],
+          "properties": {
+            "t": { "enum": ["string", "number", "bool", "date", "datetime", "empty", "error"] },
+            "v": { "type": ["number", "string", "boolean"] }
+          }
+        }
+      ]
+    },
+
+    "constraintScalar": { "type": ["number", "string", "boolean"] },
+    "numberConstraints": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" },
+        "integer": { "type": "boolean" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "oneOf": { "type": "array", "minItems": 1, "items": { "type": "number" } },
+        "indexInto": { "$ref": "#/$defs/binding", "description": "The value must be an integer within 1..ROWS(<that range input>)." },
+        "oneOfRange": { "$ref": "#/$defs/binding", "description": "The value must appear in <that range input>." }
+      },
+      "additionalProperties": false
+    },
+    "textConstraints": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" },
+        "oneOf": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "oneOfRange": { "$ref": "#/$defs/binding" }
+      },
+      "additionalProperties": false
+    },
+    "booleanConstraints": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "dateConstraints": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" },
+        "min": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2})?$" },
+        "max": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2})?$" },
+        "oneOf": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "oneOfRange": { "$ref": "#/$defs/binding" }
+      },
+      "additionalProperties": false
+    },
+    "rangeConstraints": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" },
+        "columns": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/columnType" } },
+        "key": {
+          "type": "object",
+          "required": ["column"],
+          "properties": {
+            "column": { "type": "integer", "minimum": 1 },
+            "sorted": { "enum": ["ascending", "descending"] },
+            "unique": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "output": {
+      "type": "object",
+      "properties": {
+        "type": { "enum": ["number", "percent", "money", "text", "boolean", "date", "datetime"] },
+        "currency": { "$ref": "#/$defs/currency" }
+      },
+      "additionalProperties": false
+    },
+
+    "limits": {
+      "description": "A request may only TIGHTEN the host's limits: the stricter value wins. Values above the hard ceiling are invalid. Clock, seed and providers are not limits and are refused here (additionalProperties false).",
+      "type": "object",
+      "properties": {
+        "maxFormulaBytes": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "maxDepth": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "maxFormulas": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "maxRangeCells": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "maxInputCells": { "type": "integer", "minimum": 1, "maximum": 5000000 },
+        "maxArrayCells": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "maxLambdaDepth": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "maxSteps": { "type": "integer", "minimum": 1, "maximum": 50000000 },
+        "maxTextLength": { "type": "integer", "minimum": 1, "maximum": 50000 },
+        "wallClockMs": { "type": "integer", "minimum": 1, "maximum": 30000 },
+        "maxTraceSteps": { "type": "integer", "minimum": 1, "maximum": 100000 }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "examples": [
+    {
+      "version": 1,
+      "formulas": {
+        "unit_price": "=VLOOKUP(qty, price_breaks, 2, TRUE)",
+        "Quote!E5": "=ROUND(unit_price * qty * (1 - discount), 2)"
+      },
+      "inputs": {
+        "qty": { "type": "number", "value": 120 },
+        "discount": { "type": "percent", "value": 0.05 },
+        "price_breaks": {
+          "type": "range",
+          "header": true,
+          "columns": ["number", "money"],
+          "currency": "USD",
+          "rows": [["min_qty", "unit_price"], [1, 12.5], [50, 11], [100, 9.75], [500, 8.4]]
+        },
+        "Rates!A1:B3": { "type": "range", "rows": [["band", "rate"], ["a", 0.1], ["b", 0.2]] },
+        "customer": { "type": "text", "value": "=HYPERLINK(\"x\")" }
+      },
+      "names": { "rates": "Rates!A1:B3" },
+      "outputs": { "Quote!E5": { "type": "money", "currency": "USD" }, "unit_price": {} },
+      "trace": "lookups",
+      "limits": { "maxSteps": 50000 }
+    },
+    {
+      "version": 1,
+      "formulas": {
+        "total_units": "=seats_core + seats_adv_a + seats_adv_b",
+        "grid_discount": "=IF(term_years = 3, VLOOKUP(total_units, grid_3yr, 2, TRUE), VLOOKUP(total_units, grid_5yr, 2, TRUE))",
+        "accel_pct": "=INDEX(accel_options, accel_choice)",
+        "total_discount": "=grid_discount + accel_pct",
+        "line_core": "=ROUND(seats_core * price_core * (1 - total_discount), 2)"
+      },
+      "inputs": {
+        "term_years": { "type": "number", "value": 3, "constraints": { "required": true, "integer": true, "oneOf": [3, 5] } },
+        "seats_core": { "type": "number", "value": 30, "constraints": { "integer": true, "min": 0 } },
+        "seats_adv_a": { "type": "number", "value": 10, "constraints": { "integer": true, "min": 0 } },
+        "seats_adv_b": { "type": "number", "value": 0, "constraints": { "integer": true, "min": 0 } },
+        "price_core": { "type": "money", "currency": "USD", "value": "1000" },
+        "accel_options": { "type": "range", "columns": ["percent"], "rows": [[0], [0.05], [0.1], [0.15], [0.2]] },
+        "accel_choice": { "type": "number", "value": 2, "constraints": { "required": true, "indexInto": "accel_options" } },
+        "grid_3yr": {
+          "type": "range",
+          "rows": [[0, 0], [25, 0.05], [50, 0.08], [100, 0.12], [250, 0.15]],
+          "constraints": { "columns": ["number", "percent"], "key": { "column": 1, "sorted": "ascending", "unique": true } }
+        },
+        "grid_5yr": {
+          "type": "range",
+          "rows": [[0, 0.03], [25, 0.08], [50, 0.12], [100, 0.16], [250, 0.2]],
+          "constraints": { "columns": ["number", "percent"], "key": { "column": 1, "sorted": "ascending", "unique": true } }
+        }
+      },
+      "outputs": { "total_units": {}, "grid_discount": { "type": "percent" }, "total_discount": { "type": "percent" }, "line_core": { "type": "money", "currency": "USD" } },
+      "trace": "lookups"
+    },
+    {
+      "version": 1,
+      "formulas": { "unit_price": "=VLOOKUP(qty, price_breaks, 2, TRUE)" },
+      "inputs": {
+        "qty": { "type": "number", "constraints": { "required": true, "integer": true, "min": 1 } },
+        "price_breaks": { "type": "range", "header": true, "columns": ["number", "money"], "currency": "USD", "maxRows": 50 }
+      }
+    }
+  ]
+}

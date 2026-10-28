@@ -1,0 +1,59 @@
+{
+    "name": "particle-academy/fancy-formula",
+    "description": "A deterministic spreadsheet-formula engine with Google Sheets semantics. Formulas are code, inputs are always values, and every output carries a trace of what it read. Malformed input throws with a stable code, a spreadsheet error is a value, and a broken limit aborts: the three never collapse into one another.",
+    "type": "library",
+    "keywords": [
+        "formula",
+        "spreadsheet",
+        "google-sheets",
+        "evaluator",
+        "sandbox",
+        "deterministic",
+        "pricing",
+        "cross-language",
+        "particle-academy"
+    ],
+    "license": "MIT",
+    "homepage": "https://github.com/Particle-Academy/fancy-formula",
+    "support": {
+        "issues": "https://github.com/Particle-Academy/fancy-formula/issues",
+        "source": "https://github.com/Particle-Academy/fancy-formula"
+    },
+    "authors": [
+        {
+            "name": "Particle Academy",
+            "homepage": "https://github.com/Particle-Academy"
+        }
+    ],
+    "require": {
+        "php": "^8.4"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.26",
+        "particle-academy/holy-sheet": "^2.11",
+        "pestphp/pest": "^3.0|^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "FancyFormula\\": "php/src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "FancyFormula\\Tests\\": "php/tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest --test-directory=php/tests",
+        "lint": "pint --test",
+        "capture:build": "php scripts/build-capture-workbook.php"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
