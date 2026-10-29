@@ -12,6 +12,31 @@ consumer must do.
 
 ## [Unreleased]
 
+P1 slice 1: the first real evaluator, for the pricing set. Not yet released:
+0.1.0 is tagged only after the Google Sheets goldens pass.
+
+### Added
+
+- `Formula::parse($source, $maxBytes = 8192, $maxDepth = 64)` with
+  `->normalized()`, `->ast()`, `->references()` and `->spans()`. The full
+  grammar of SPEC.md section 3: references with and without sheets, quoted
+  sheets, open ranges (`B:B`, `1:1`), array literals (references allowed
+  inside, H-21), empty arguments (`INDEX(r,,1)`), postfix `%` once, and LET,
+  LAMBDA and an immediate LAMBDA invocation as syntax nodes. Malformed input
+  throws `FormulaError` with `FORMULA_SYNTAX`, `FORMULA_TOO_LONG` (UTF-8 bytes,
+  before lexing) or `FORMULA_TOO_DEEP` (fancy-expr's depth definition, checked
+  on the way down and up) and a byte offset.
+- Confirmed by the partial first capture and pinned: unary minus binds before
+  `^` (`=-2^0.5` is `#NUM!`), and `=10%%` is `FORMULA_SYNTAX`.
+- `#NULL!` and `#ERROR!` are not accepted as literals until H-16 is decided.
+
+### Fixed
+
+- The trace schema's VLOOKUP and SUMIF examples had a `span` ending one byte
+  past the end of their own formula (`[1, 37]` on a 36-byte formula). They are
+  now `[1, 36]` and `[1, 29]`, and a test holds every example's spans inside
+  its formula. Examples only; no shape changed.
+
 ## [0.0.1] - 2026-10-29
 
 **A PREVIEW, NOT AN ENGINE. It computes nothing.** Published so a tool layer

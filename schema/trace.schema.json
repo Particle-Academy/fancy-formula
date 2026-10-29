@@ -213,7 +213,7 @@
       "dependsOn": [],
       "steps": [
         {
-          "id": 1, "fn": "VLOOKUP", "span": [1, 37], "mode": "approximate",
+          "id": 1, "fn": "VLOOKUP", "span": [1, 36], "mode": "approximate",
           "lookup": {
             "key": { "t": "number", "v": 120 },
             "range": "price_breaks",
@@ -240,7 +240,7 @@
       "dependsOn": [],
       "steps": [
         {
-          "id": 1, "fn": "SUMIF", "span": [1, 30],
+          "id": 1, "fn": "SUMIF", "span": [1, 29],
           "criteria": [{ "criteria": ">=100", "parsed": { "op": ">=", "value": 100 }, "matchedRows": [3, 4, 5] }],
           "result": { "t": "number", "v": 1840 }
         }
