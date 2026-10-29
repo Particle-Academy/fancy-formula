@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "formulas": {
+    "total_units": "=seats_core + seats_adv_a + seats_adv_b",
+    "grid_discount": "=IF(term_years = 5, VLOOKUP(total_units, grid_5yr, 2, TRUE), VLOOKUP(total_units, grid_3yr, 2, TRUE))",
+    "accel_pct": "=INDEX(accel_options, accel_choice)",
+    "total_discount": "=grid_discount + accel_pct",
+    "line_core": "=ROUND(seats_core * price_core * (1 - total_discount), 2)",
+    "line_adv_a": "=ROUND(seats_adv_a * price_adv_a * (1 - total_discount), 2)",
+    "line_adv_b": "=ROUND(seats_adv_b * price_adv_b * (1 - total_discount), 2)",
+    "admin_price": "=IF(admin_mode = \"entered\", admin_price_entered, price_core + price_adv_a * N(adv_a_in_admin) + price_adv_b * N(adv_b_in_admin))",
+    "line_admin": "=ROUND(admin_seats * admin_price * (1 - total_discount), 2)",
+    "annual_total": "=SUM(line_core, line_adv_a, line_adv_b, line_admin)",
+    "contract_total": "=annual_total * term_years",
+    "needs_core": "=IF(AND(seats_adv_a + seats_adv_b > 0, seats_core = 0), \"Advanced modules need Core\", \"\")"
+  },
+  "inputs": {
+    "term_years": { "type": "number", "value": 3, "constraints": { "required": true, "integer": true, "oneOf": [3, 5] } },
+    "seats_core": { "type": "number", "value": 30, "constraints": { "required": true, "integer": true, "min": 0 } },
+    "seats_adv_a": { "type": "number", "value": 10, "constraints": { "integer": true, "min": 0 } },
+    "seats_adv_b": { "type": "number", "value": 0, "constraints": { "integer": true, "min": 0 } },
+    "price_core": { "type": "money", "currency": "USD", "value": "1000" },
+    "price_adv_a": { "type": "money", "currency": "USD", "value": "400" },
+    "price_adv_b": { "type": "money", "currency": "USD", "value": "600" },
+    "accel_options": { "type": "range", "columns": ["percent"], "rows": [[0], [0.05], [0.1], [0.15], [0.2]] },
+    "accel_choice": { "type": "number", "value": 2, "constraints": { "required": true, "indexInto": "accel_options" } },
+    "admin_mode": { "type": "text", "value": "entered", "constraints": { "required": true, "oneOf": ["entered", "derived"] } },
+    "admin_price_entered": { "type": "money", "currency": "USD", "value": "200", "constraints": { "min": 0 } },
+    "admin_seats": { "type": "number", "value": 2, "constraints": { "integer": true, "min": 0 } },
+    "adv_a_in_admin": { "type": "boolean", "value": false },
+    "adv_b_in_admin": { "type": "boolean", "value": false },
+    "grid_3yr": {
+      "type": "range",
+      "rows": [[0, 0], [25, 0.05], [50, 0.08], [100, 0.12], [250, 0.15]],
+      "constraints": { "columns": ["number", "percent"], "key": { "column": 1, "sorted": "ascending", "unique": true } }
+    },
+    "grid_5yr": {
+      "type": "range",
+      "rows": [[0, 0.03], [25, 0.08], [50, 0.12], [100, 0.16], [250, 0.2]],
+      "constraints": { "columns": ["number", "percent"], "key": { "column": 1, "sorted": "ascending", "unique": true } }
+    }
+  },
+  "outputs": {
+    "grid_discount": { "type": "percent" },
+    "accel_pct": { "type": "percent" },
+    "total_discount": { "type": "percent" },
+    "line_core": { "type": "money", "currency": "USD" },
+    "line_adv_a": { "type": "money", "currency": "USD" },
+    "line_adv_b": { "type": "money", "currency": "USD" },
+    "admin_price": { "type": "money", "currency": "USD" },
+    "line_admin": { "type": "money", "currency": "USD" },
+    "annual_total": { "type": "money", "currency": "USD" },
+    "contract_total": { "type": "money", "currency": "USD" },
+    "needs_core": { "type": "text" }
+  },
+  "trace": "lookups"
+}

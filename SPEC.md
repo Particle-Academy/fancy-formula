@@ -46,7 +46,86 @@ API surface (PHP; the other languages mirror the shapes):
 
 `StubEngine` exists in P0 so hosts can build against the shapes now. It computes
 nothing: every result is a `#N/A` value whose detail says "stub", and its engine
-string is `fancy-formula 0.0.0-stub`.
+string is `fancy-formula 0.0.0-stub`. It is KEPT beside the real `Engine`
+(same shapes, arrays rather than objects) for hosts already built against it.
+
+### 1.1 Construction: the host API (PHP)
+
+Policy is constructor state; a request never carries it (section 8.3). Every
+parameter is optional, so `new Engine()` is exactly the defaults.
+
+```php
+namespace FancyFormula;
+
+final class Engine {
+    public const string ENGINE = 'fancy-formula 0.1.0';   // the engine string in every result
+    public const string SPEC = '1';
+    public function __construct(?Options $options = null);
+    public function check(array $request): CheckReport;
+    public function evaluate(array $request): Evaluation;
+    public static function functions(): array;          // the inventory
+}
+
+final readonly class Options {
+    public function __construct(
+        ?Limits $limits = null,                 // null = Limits::defaults()
+        ?Clock $clock = null,                   // null: NOW/TODAY are FORMULA_NEEDS_CLOCK
+        ?Seed $random = null,                   // null: RAND* are FORMULA_NEEDS_SEED
+        array $providers = [],                  // list<ExternalProvider>
+        ?FunctionPolicy $functions = null,      // null = FunctionPolicy::all()
+    );
+}
+
+final readonly class Limits {
+    public static function defaults(): self;
+    public function with(int ...$values): self;          // named: ->with(maxSteps: 2_000_000, wallClockMs: 500)
+    public function tighten(array $requestLimits): self; // what the engine applies from a request
+    public function get(string $name): int;
+}
+// names: maxFormulaBytes, maxDepth, maxFormulas, maxRangeCells, maxInputCells,
+// maxArrayCells, maxLambdaDepth, maxSteps, maxTextLength, wallClockMs, maxTraceSteps.
+// with() may loosen a default up to the ceiling (section 12) and throws past it.
+// A REQUEST tightens through its own `limits` object ({"limits": {"maxSteps": 50000}});
+// the stricter value wins, and a looser request value is ignored.
+
+interface Clock { public function localDateTime(): string; public function zone(): string; }
+final readonly class FixedClock implements Clock {
+    public function __construct(string $localDateTime, string $zone);  // ('2026-10-27T09:00:00', 'Europe/London')
+}
+
+final readonly class Seed { public static function fromString(string $seed): self; }
+
+final readonly class FunctionPolicy {
+    public static function all(): self;
+    public static function only(array $names): self;
+    public function deny(array $names): self;           // FunctionPolicy::all()->deny(['NOW'])
+    public function allows(string $name): bool;
+}
+
+interface ExternalProvider {
+    public function name(): string;                     // one of IMPORTXML, GOOGLEFINANCE, ...
+    public function call(array $args, ProviderContext $context): array;  // exchange cells in, one exchange cell out
+}
+final readonly class ProviderContext { public string $function; public string $binding; }
+
+final readonly class CheckReport implements \JsonSerializable {
+    public function ok(): bool; public function diagnostics(): array; public function toArray(): array;
+}
+final readonly class Evaluation implements \JsonSerializable {
+    public function ok(): bool; public function code(): ?string; public function toArray(): array;
+}
+```
+
+- `toArray()` is plain PHP arrays. `json_encode($report)` / `json_encode($evaluation)`
+  is the schema-valid JSON: it writes the `results`, `traces` and `references`
+  maps as objects even when empty (trace `none` leaves `traces` empty).
+- `Options` validates eagerly: a clock whose local date-time is not real, or a
+  provider for a name that is not an external function, throws
+  `InvalidArgumentException` at construction, never mid-run.
+- The clock is read once per `evaluate()`: every NOW() in a run sees one instant.
+- Slice 1 accepts a `Seed` and folds its digest into the fingerprint, but does
+  not evaluate the random functions yet: with a seed they are
+  `FORMULA_UNKNOWN_FUNCTION` (a later slice), without one `FORMULA_NEEDS_SEED`.
 
 ---
 
@@ -759,3 +838,26 @@ Also open, and decided outside the capture:
 - Capture rows reach their inputs by address (`Inputs!C2:D5`); each row's engine
   request binds the same addresses as cell-bound inputs, so the formula text is
   identical in the capture and in the conformance row.
+
+---
+
+## 15. What P1 slice 1 evaluates
+
+`Engine::functions()` is the authoritative list; this is it in prose. Every
+other P1 function is a later slice and is `FORMULA_UNKNOWN_FUNCTION` at
+`check()`, with a message that says so.
+
+| Group | Slice 1 |
+|---|---|
+| Operators | `+ - * / ^ & %` (postfix), comparisons, unary `- +`, `:` inside references, array literals |
+| Math | SUM, SUMIF, SUMIFS, SUMPRODUCT, PRODUCT, ROUND, ROUNDUP, ROUNDDOWN, MROUND, CEILING, FLOOR, INT, TRUNC, ABS, MOD, POWER, SQRT |
+| Statistical | MIN, MAX, AVERAGE, COUNT, COUNTA, COUNTIF, COUNTIFS, AVERAGEIF |
+| Logical | IF, IFS, SWITCH, IFERROR, IFNA, AND, OR, NOT, TRUE, FALSE, LET |
+| Lookup | VLOOKUP, HLOOKUP, XLOOKUP (match modes 0, -1, 1, 2; search modes 1, -1), INDEX (including `INDEX(r,,c)`), MATCH (0, 1, -1), LOOKUP, CHOOSE, ROWS, COLUMNS |
+| Info | N, ISBLANK, ISERROR, ISNA, ISNUMBER, ISTEXT, NA |
+| Text | CONCATENATE, CONCAT, LEN, TEXT (number and percent format codes; date and time codes are a later slice and give a `#VALUE!` whose detail says so) |
+| Date | DATE, YEAR, MONTH, DAY, EDATE, EOMONTH, and TODAY / NOW with a host clock |
+
+Not in slice 1: LAMBDA is parsed but not evaluated (`FORMULA_UNKNOWN_FUNCTION`);
+RAND and RANDBETWEEN; external providers are supported, external functions
+without one are refused; array outputs are P2 (`FORMULA_TYPE`).

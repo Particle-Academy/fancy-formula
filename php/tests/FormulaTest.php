@@ -115,9 +115,9 @@ test('precedence: unary binds before ^, % before ^, & below +, comparison lowest
     $ast = Formula::parse('=1&2=12')->ast();
     expect($ast['op'])->toBe('=')->and($ast['left']['op'])->toBe('&');
 
-    // ^ is left-associative (H-02): (2^3)^2.
+    // ^ is RIGHT-associative (captured P-0003: =2^3^2 is 512): 2^(3^2).
     $ast = Formula::parse('=2^3^2')->ast();
-    expect($ast['left']['op'])->toBe('^');
+    expect($ast['right']['op'])->toBe('^')->and($ast['left']['type'])->toBe('number');
 });
 
 dataset('syntax errors', [
@@ -133,8 +133,6 @@ dataset('syntax errors', [
     'trailing junk' => ['=1 2', 3],
     'empty formula' => ['=', 1],
     'operator with no operand' => ['=1+', 3],
-    '#NULL! waits on H-16' => ['=#NULL!', 1],
-    '#ERROR! waits on H-16' => ['=#ERROR!', 1],
     'a sheet with no cell' => ['=Inputs!', 8],
     'row 0' => ['=A0', 1],
     'LET with an even count' => ['=LET(x,1)', 1],
@@ -195,6 +193,11 @@ test('every trace example\'s step spans lie inside its formula and start at the 
             expect(array_values($spans)[0])->toBe($step['span']);
         }
     }
+});
+
+test('#NULL! and #ERROR! are error literals (captured, H-16)', function () {
+    expect(Formula::parse('=#NULL!')->ast())->toMatchArray(['type' => 'error', 'value' => '#NULL!']);
+    expect(Formula::parse('=#error!')->ast())->toMatchArray(['type' => 'error', 'value' => '#ERROR!']);
 });
 
 test('a function name that looks like a cell is a function', function () {

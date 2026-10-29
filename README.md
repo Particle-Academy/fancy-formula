@@ -4,10 +4,11 @@ A deterministic spreadsheet-formula engine with **Google Sheets semantics**.
 Formulas are code; inputs are always values; every output carries a trace of
 what it read and which lookup row it matched.
 
-> **Status: phase P0 — specification and oracle. There is no evaluator yet.**
-> The JSON Schemas in `schema/` and the stable codes in `SPEC.md` are frozen at
-> spec version 1, so hosts can build against them now. `StubEngine` returns
-> schema-valid output and computes nothing. The PHP engine (0.1.0) is phase P1.
+> **Status: P1 slice 1 on `main`, unreleased; 0.1.0 is tagged when it ships.**
+> `Engine` evaluates the pricing set (SPEC.md section 15) and passes every
+> Google Sheets golden in its scope (fancy-conformance 0.39.0). The JSON Schemas
+> in `schema/` and the stable codes in `SPEC.md` are frozen at spec version 1.
+> Released 0.0.1 is the `StubEngine` preview only, and computes nothing.
 
 ## Why
 
@@ -25,12 +26,25 @@ Three outcomes, never collapsed into one another:
 ## Shape
 
 ```php
-use FancyFormula\StubEngine;
+use FancyFormula\{Engine, Options, Limits, FixedClock, Seed, FunctionPolicy};
 
-$engine = new StubEngine;              // the real Engine arrives in 0.1.0
-$report = $engine->check($request);     // static analysis, no values needed
-$result = $engine->evaluate($request);  // results + one trace per output
+$engine = new Engine;                   // the defaults; or, every argument optional:
+$engine = new Engine(new Options(
+    limits:    Limits::defaults()->with(wallClockMs: 500),
+    clock:     new FixedClock('2026-10-27T09:00:00', 'Europe/London'),
+    random:    Seed::fromString('quote-8812'),
+    providers: [],                      // ExternalProvider[]
+    functions: FunctionPolicy::all(),   // or ::only([...]), ->deny([...])
+));
+
+$report = $engine->check($request);     // CheckReport: static analysis, no values needed
+$result = $engine->evaluate($request);  // Evaluation: results + one trace per output
+$result->toArray();                     // plain PHP arrays
+json_encode($result);                   // schema-valid JSON (empty maps as {})
+Engine::ENGINE;                         // 'fancy-formula 0.1.0'
 ```
+
+Exact signatures: SPEC.md section 1.1.
 
 The request (`schema/request.schema.json`):
 

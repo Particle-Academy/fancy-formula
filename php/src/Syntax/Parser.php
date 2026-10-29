@@ -13,7 +13,7 @@ use FancyFormula\FormulaError;
  *   &                            left
  *   + -                          left
  *   * /                          left
- *   ^                            left            (HYPOTHESIS H-02)
+ *   ^                            RIGHT           (captured, P-0003: =2^3^2 is 512)
  *   postfix %                    once
  *   unary - +                                    (HYPOTHESIS H-01: -2^2 is 4)
  *   primary, references          (`:` lives inside the reference token)
@@ -194,7 +194,21 @@ final class Parser
     /** @return array<string, mixed> */
     private function power(): array
     {
-        return $this->chain($this->percent(...), '^');
+        // RIGHT-associative: the capture (P-0003) has =2^3^2 as 512, so H-02
+        // (left, 64) was wrong.
+        $left = $this->percent();
+        if (! $this->isOp('^')) {
+            return $left;
+        }
+        $t = $this->peek();
+        $this->i++;
+        $leftDepth = $this->depth;
+        $right = $this->child($this->power(...));
+
+        return $this->finish(
+            ['type' => 'binary', 'op' => '^', 'left' => $left, 'right' => $right, 'at' => $t['at']],
+            1 + max($leftDepth, $this->depth),
+        );
     }
 
     /** @return array<string, mixed> */

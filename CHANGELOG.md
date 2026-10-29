@@ -28,7 +28,30 @@ P1 slice 1: the first real evaluator, for the pricing set. Not yet released:
   on the way down and up) and a byte offset.
 - Confirmed by the partial first capture and pinned: unary minus binds before
   `^` (`=-2^0.5` is `#NUM!`), and `=10%%` is `FORMULA_SYNTAX`.
-- `#NULL!` and `#ERROR!` are not accepted as literals until H-16 is decided.
+- `#NULL!` and `#ERROR!` are error literals (the capture decided H-16).
+- **`FancyFormula\Engine`: the first real evaluator** (SPEC.md section 15 lists
+  slice 1). `check()` returns a `CheckReport`, `evaluate()` an `Evaluation`;
+  both have `toArray()`, and `json_encode()` of either is the schema-valid JSON.
+  `Engine::ENGINE` is `fancy-formula 0.1.0`.
+  - Typed, value-only inputs bound to names or cells; constraint validation of
+    the supplied values BEFORE any formula runs, in the canonical order with
+    the caps; topological evaluation with lazy IF, IFS, SWITCH, IFERROR, IFNA,
+    LET and CHOOSE; the step, range, text, cell and wall-clock budgets with
+    typed aborts; the float policy (one comparator, 15-digit decimal rounding,
+    half away from zero); date serials; traces at `none`, `lookups` and `full`
+    with the lookup `bracket` and `probes`; the fingerprint;
+    `Engine::functions()`.
+  - check() diagnostics: unknown function (naming a later slice when it is
+    one) or name, circular references with the cycle path, arity, type,
+    refused, needs clock, needs seed, input invalid, dynamic reference, and
+    the declared shape of every constraint.
+- **Host construction, the contract Prism codes against** (SPEC.md 1.1):
+  `new Engine(new Options(limits:, clock:, random:, providers:, functions:))`,
+  every argument optional. New `Clock` interface with `FixedClock`, `Seed`,
+  `FunctionPolicy` (`all()`, `only()`, `->deny()`), `ExternalProvider` with
+  `ProviderContext`, `CheckReport`, `Evaluation`. Provider calls are recorded in
+  the trace's `external` list and folded into the fingerprint.
+- `StubEngine` is kept, unchanged, for hosts built against 0.0.1.
 
 ### Fixed
 

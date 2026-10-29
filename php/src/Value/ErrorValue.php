@@ -11,8 +11,8 @@ namespace FancyFormula\Value;
  */
 final readonly class ErrorValue
 {
-    /** The error codes this engine produces. #NULL! and #ERROR! wait on H-16. */
-    public const array CODES = ['#N/A', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!'];
+    /** The error codes. #NULL! and #ERROR! are real Sheets values (captured, H-16). */
+    public const array CODES = ['#N/A', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#NULL!', '#ERROR!'];
 
     public function __construct(public string $code, public string $detail = '') {}
 

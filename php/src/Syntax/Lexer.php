@@ -20,10 +20,8 @@ final class Lexer
     /** Longest first. */
     private const array OPS = ['<>', '<=', '>=', '+', '-', '*', '/', '^', '&', '%', '=', '<', '>', '(', ')', ',', ';', '{', '}'];
 
-    public const array ERROR_LITERALS = ['#N/A', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!'];
-
-    /** Not accepted until HYPOTHESIS H-16 is decided by capture rows P-0030 / P-0031. */
-    private const array UNDECIDED_ERROR_LITERALS = ['#NULL!', '#ERROR!'];
+    /** #NULL! and #ERROR! are real Sheets literals: captured, P-0030 / P-0031 (H-16). */
+    public const array ERROR_LITERALS = ['#N/A', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#NULL!', '#ERROR!'];
 
     private const string CELL = '\$?[A-Za-z]{1,3}\$?[0-9]+';
 
@@ -138,11 +136,6 @@ final class Lexer
         foreach (self::ERROR_LITERALS as $code) {
             if (str_starts_with($rest, $code)) {
                 return ['type' => 'error', 'value' => $code, 'at' => $at, 'end' => $at + strlen($code)];
-            }
-        }
-        foreach (self::UNDECIDED_ERROR_LITERALS as $code) {
-            if (str_starts_with($rest, $code)) {
-                throw new FormulaError("{$code} is not an accepted error literal until capture decides H-16", $source, $at);
             }
         }
 
