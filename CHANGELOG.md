@@ -52,6 +52,13 @@ P1 slice 1: the first real evaluator, for the pricing set. Not yet released:
   `ProviderContext`, `CheckReport`, `Evaluation`. Provider calls are recorded in
   the trace's `external` list and folded into the fingerprint.
 - `StubEngine` is kept, unchanged, for hosts built against 0.0.1.
+- **The Google Sheets goldens run in CI.** Dev dependency
+  `particle-academy/fancy-conformance` pinned EXACTLY at `0.39.0` (first party),
+  asserted by a test as in fancy-expr. All 13 `formula/*` suites run: 482 rows
+  in slice 1 pass; 205 are skipped, each with a reason naming slice 2, decided
+  from the formula text and never from the engine's output. Four rows whose
+  golden is lossier than its declared tolerance (two 10-digit values, two tiny
+  values exported as 0) are still asserted, at the precision the export kept.
 
 ### Fixed
 
