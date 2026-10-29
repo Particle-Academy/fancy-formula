@@ -60,6 +60,19 @@ P1 slice 1: the first real evaluator, for the pricing set. Not yet released:
   golden is lossier than its declared tolerance (two 10-digit values, two tiny
   values exported as 0) are still asserted, at the precision the export kept.
 
+### Changed
+
+- **SPEC.md section 13 records the capture's verdict on every hypothesis**:
+  CONFIRMED, REFUTED, or OPEN (only where its rows need a slice-2 function).
+  Refuted, and the engine now follows Sheets: `^` is right-associative
+  (`=2^3^2` is 512); there is no near-zero snap in `+` and `-`; INDEX and
+  CHOOSE out of range are `#NUM!` (MOIC's case F is `#NUM!`, not `#REF!`); an
+  omitted IFERROR fallback is EMPTY; open ranges span the 1000 x 26 grid;
+  numbers from 1E+15 convert to text in full decimal, truncated past the 15th
+  digit; approximate lookups order raw doubles. SPEC.md section 2 names the two
+  deliberate divergences: a Sheets `#ERROR!` parse error is our
+  `FORMULA_SYNTAX`, a Sheets `#N/A` wrong argument count our `FORMULA_ARITY`.
+
 ### Fixed
 
 - The trace schema's VLOOKUP and SUMIF examples had a `span` ending one byte

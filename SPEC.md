@@ -149,6 +149,18 @@ Consequences, each pinned by a conformance row once P1 lands:
   (`FORMULA_INPUT_CONSTRAINT`) before any formula runs: it is the host's data
   error, not a spreadsheet value.
 
+**The two deliberate divergences from Google Sheets.** Sheets shows both of
+these as values in the cell; this engine refuses them at `check()`, because a
+malformed formula must never reach a quote as a value:
+
+| Sheets shows | This engine | Capture row |
+|---|---|---|
+| a parse error as `#ERROR!` (`=10%%`) | `FORMULA_SYNTAX` | P-0009 |
+| a wrong argument count as `#N/A` (`=SUM()`) | `FORMULA_ARITY` | E-0051 |
+
+The conformance runner maps each refusal to that one Sheets value, and only
+when it is the request's sole diagnostic code.
+
 ---
 
 ## 3. Grammar
@@ -176,10 +188,10 @@ US locale only: that is how Sheets stores formulas, whatever the display locale.
 - Named ranges and named inputs: bare identifiers (`price_breaks`). A name may
   not read as a cell address (`A1`, `AB12`): the grammar could not tell them
   apart.
-- An open range is clamped to the **populated extent** of the cells bound in
-  that column or row, and that extent is still checked against limits.
-  **HYPOTHESIS H-25**: Sheets sizes an open range by the grid instead, so
-  `ROWS(B:B)` is a divergence candidate.
+- An open range spans the **grid**, as in Sheets (captured, H-25 refuted:
+  `ROWS(B:B)` is 1000): a new sheet's 1000 rows by 26 columns, grown to the
+  extent of the bound cells when they reach further. That extent is still
+  checked against limits.
 
 ### 3.3 Operators, lowest precedence first
 
@@ -189,13 +201,14 @@ US locale only: that is how Sheets stores formulas, whatever the display locale.
 | 2 | `&` | left |
 | 3 | `+` `-` | left |
 | 4 | `*` `/` | left |
-| 5 | `^` | left (**HYPOTHESIS H-02**) |
+| 5 | `^` | **right** (captured, H-02 refuted: `=2^3^2` is 512) |
 | 6 | postfix `%` | — |
 | 7 | unary `-` `+` | — |
 | 8 | `:` (range) | — |
 
-**HYPOTHESIS H-01**: unary minus binds tighter than `^`, so `=-2^2` is `4`, as
-in Excel. `=0-2^2` is `-4` either way.
+Unary minus binds tighter than `^` (captured, H-01 confirmed): `=-2^2` is `4`,
+`=0-2^2` is `-4`, and `=-2^0.5` is `#NUM!`. Postfix `%` applies once: `=10%%`
+is `#ERROR!` in Sheets and `FORMULA_SYNTAX` here.
 
 Postfix `%` divides by 100 and binds tighter than `^` (`=2^50%` is `2^0.5`).
 
@@ -301,9 +314,11 @@ Sheets stores doubles and displays 15 significant digits.
    (**H-29**), never `fmod`'s sign of the dividend.
 4. **One comparator holds the whole equality and ordering policy**
    (`Compare::numbers()`): compare after rounding both sides to 15 significant
-   digits. **HYPOTHESIS H-03**: `=0.1+0.2=0.3` is TRUE. **H-04**: a result
-   within 15 significant digits of zero snaps to 0. Lookups (MATCH, approximate
-   VLOOKUP) and criteria use the same comparator.
+   digits. Captured (H-03): `=0.1+0.2=0.3` is TRUE, and exact lookups and
+   criteria use the same comparator. Two captured exceptions: an APPROXIMATE
+   lookup orders raw doubles (L-0015), and `+` / `-` do NOT snap a near-zero
+   result (F-0034, H-04 refuted). MOD takes its quotient at 15 digits, so
+   `MOD(0.3, 0.1)` is 0 (F-0015).
 5. **Transcendental functions** (`^` with a non-integer exponent, EXP, LN, the
    distributions, iterative solvers) may differ in the last bit across libm
    implementations. Their conformance rows declare a row-level `tolerance`.
@@ -763,47 +778,51 @@ between runs, which is why it has its own code.
 
 ## 13. Hypotheses the capture decides
 
-Every row below is unverified. The capture workbook (`capture/v1/`) holds the
-rows that decide each one; `request.json` lists the same mapping, and a test
-holds this table and that file to the same ids.
+**Decided by the Google Sheets capture of 2026-10-29** (fancy-conformance
+0.39.0, `formula/*`). Each row says CONFIRMED, REFUTED or OPEN; where the
+capture refuted a hypothesis the engine follows the capture. A hypothesis
+is OPEN only when its rows use a function outside slice 1. The capture
+workbook (`capture/v1/`) holds the rows; `request.json` lists the same
+mapping with the ORIGINAL claims, and a test holds this table and that file
+to the same ids.
 
 | Id | Hypothesis | Decided by |
 |---|---|---|
-| H-01 | Unary minus binds tighter than ^, so =-2^2 is 4 (as in Excel). | P-0001, P-0002, P-0004 |
-| H-02 | ^ is left-associative, so =2^3^2 is 64. | P-0003 |
-| H-03 | Equality compares at 15 significant digits, so =0.1+0.2=0.3 is TRUE. | F-0001, F-0005, F-0016, F-0024, F-0027, F-0028, F-0029, F-0030, F-0031, F-0032, F-0033, L-0015 |
-| H-04 | A result within 15 significant digits of zero snaps to 0, e.g. (0.1+0.2)-0.3. | F-0002, F-0034 |
-| H-05 | ROUND, ROUNDUP, ROUNDDOWN, MROUND and TRUNC work on the 15-significant-digit decimal string, rounding half away from zero (ROUND(1.005,2) = 1.01). | F-0006, F-0007, F-0008, F-0009, F-0010, F-0011, F-0012, F-0013, F-0014, F-0015, F-0035, F-0036, E-0081, E-0092, E-0366, E-0375, E-0379 |
-| H-06 | Sheets has no 1900 leap-year bug: serial 60 is 1900-02-28 and DATE(1900,2,29) is 1900-03-01. | D-0001, D-0002, D-0003, D-0004, D-0005, D-0006, D-0007, D-0008, D-0009, D-0010, D-0028 |
-| H-07 | Negative serials are dates before 1899-12-30 (or an error); TEXT/YEAR of a negative serial. | D-0011, D-0012, D-0013 |
-| H-08 | DATE adds 1900 to a year in 0..1899; a year below 0 or at least 10000 is #NUM!. | D-0013, D-0015, D-0016, D-0017, D-0018, D-0019, D-0020 |
-| H-09 | Approximate VLOOKUP/MATCH/LOOKUP over an unsorted column runs a binary search, and the result follows that search. | L-0001, L-0002, L-0003, L-0004, L-0005, L-0006 |
-| H-10 | AND and OR do NOT short-circuit: an error in a later argument still surfaces. | E-0193, E-0196 |
-| H-11 | A multi-cell range or array in a scalar context without ARRAYFORMULA takes its first element (or errors). | P-0023, E-0301 |
-| H-12 | Aggregates coerce LITERAL text and boolean arguments (SUM(1,"2",TRUE) = 4) but skip them inside ranges. | C-0034, C-0035, C-0036, C-0037, C-0038, C-0039, C-0040, C-0041, C-0042, E-0138 |
-| H-13 | Mixed types order as number < text < boolean in comparisons. | P-0013, C-0043, C-0044, C-0045, C-0055, C-0056, L-0007, L-0008, L-0009, E-0027, E-0030, E-0033, E-0035, E-0157, E-0222 |
-| H-14 | Text comparison and lookup are case-insensitive, including non-ASCII letters. | C-0046, C-0047, C-0048, L-0020, L-0021, E-0026, E-0029, E-0038, E-0056, E-0183, E-0241 |
-| H-15 | LEN, LEFT and MID count UTF-16 code units, so an emoji outside the BMP is 2. | E-0309, E-0310, E-0317, E-0325 |
-| H-16 | #NULL! and #ERROR! exist as Sheets error values with ERROR.TYPE codes. | P-0030, P-0031 |
-| H-17 | The xlsx Sheets exports keeps full double precision (17 significant digits). | K-0002, F-0003, F-0004, F-0019, F-0021, F-0023, F-0025, F-0026 |
-| H-18 | The text "TRUE" / "FALSE" (any case) coerces to a boolean in IF/AND/OR/NOT; other text is #VALUE!. | C-0026, C-0027, C-0028, C-0029, C-0032, C-0033, E-0173, E-0194, E-0197, E-0200 |
-| H-19 | An empty cell compares as 0 against a number and as "" against text. | C-0006, C-0017, C-0049, C-0050, C-0051, C-0052, L-0010, E-0036, E-0039, E-0041 |
-| H-20 | When several arguments are errors, the first in evaluation order wins. | C-0057, C-0058, C-0059, C-0060, C-0061 |
-| H-21 | Cell references are accepted inside array literals ({TRUE,A1}), as MOIC's SUMPRODUCT form needs. | P-0029, A-0011, A-0025, A-0046 |
-| H-22 | INDEX with a row past the range is #REF! (MOIC expects #REF!; Sheets may say #NUM!). | E-0235, A-0029, A-0030, A-0031 |
-| H-23 | Number-to-text (& and text functions) uses the 15-significant-digit general form (1/3 -> 0.333333333333333). | C-0015, C-0019, C-0020, C-0021, F-0017, F-0018, F-0020, E-0302 |
-| H-24 | Numeric text coerces in arithmetic: "5%" -> 0.05, date-like text -> serial, surrounding spaces allowed; thousands separators and currency symbols are a question. | P-0015, C-0001, C-0002, C-0003, C-0004, C-0008, C-0009, C-0010, C-0011, C-0012, C-0013, C-0014, S-0008, E-0362 |
-| H-25 | An open range (B:B) is sized by the populated extent of the inputs (the engine) -- Sheets sizes it by the grid, so ROWS(B:B) is a known divergence candidate. | P-0027, L-0016, L-0017 |
-| H-26 | Two-digit years in date TEXT ("1/1/29", "1/1/30") follow a fixed pivot in Sheets. | D-0021, D-0022 |
-| H-27 | INDEX with an omitted row argument (INDEX(r,,1)) returns the whole column, as MOIC's XLOOKUP form needs. | E-0237, A-0003, A-0017, A-0022, A-0033, A-0038 |
-| H-28 | Criteria strings are a closed grammar: "=SUM(A1)" means equality with the TEXT SUM(A1), and "==1+1" matches the text =1+1. | S-0011, S-0012, S-0013, S-0014 |
-| H-29 | MOD takes the sign of the divisor (not fmod's sign of the dividend). | E-0109, E-0110 |
-| H-30 | CEILING and FLOOR with a positive number and negative factor (or the reverse) follow Sheets, not Excel's #NUM!. | E-0084, E-0091 |
-| H-31 | IFERROR with value_if_error omitted returns an empty string. | E-0186 |
-| H-32 | POWER(0,0) is 1. | E-0118 |
-| H-33 | SUMPRODUCT over arrays of different sizes is an error, not #N/A padding. | E-0063 |
-| H-34 | A text value longer than 50,000 characters is an error. | E-0312 |
-| H-35 | The TYPE of an error value is 16 and the TYPE of an array literal is 64. | E-0291, E-0292 |
+| H-01 | CONFIRMED. Unary minus binds tighter than ^: =-2^2 is 4, =0-2^2 is -4, =-2^0.5 is #NUM!. | P-0001, P-0002, P-0004 |
+| H-02 | REFUTED. ^ is RIGHT-associative in Sheets: =2^3^2 is 512, not 64. The parser follows. | P-0003 |
+| H-03 | CONFIRMED for equality and exact lookup (=0.1+0.2=0.3 is TRUE, MATCH(0.1+0.2,...,0) finds 0.3). REFUTED for approximate-lookup ORDER, which compares raw doubles: VLOOKUP(99.99999999999999,...,TRUE) lands below the 100 breakpoint. | F-0001, F-0005, F-0016, F-0024, F-0027, F-0028, F-0029, F-0030, F-0031, F-0032, F-0033, L-0015 |
+| H-04 | REFUTED. No near-zero snap: =(0.1+0.2)-0.3=0 is FALSE. The F-0002 golden of 0 is the export flushing 5.55E-17, not Sheets computing 0; the runner holds it to "below 1E-15". | F-0002, F-0034 |
+| H-05 | CONFIRMED in slice 1: ROUND(1.005,2) is 1.01, TEXT(2.5,"0") is "3". MOD(0.3,0.1) is 0, so MOD takes its quotient at 15 digits. FIXED (E-0366) is slice 2. | F-0006, F-0007, F-0008, F-0009, F-0010, F-0011, F-0012, F-0013, F-0014, F-0015, F-0035, F-0036, E-0081, E-0092, E-0366, E-0375, E-0379 |
+| H-06 | CONFIRMED. No 1900 leap-year bug: DATE(1900,2,29) is 61. The TEXT-date rows are slice 2. | D-0001, D-0002, D-0003, D-0004, D-0005, D-0006, D-0007, D-0008, D-0009, D-0010, D-0028 |
+| H-07 | CONFIRMED in slice 1: YEAR(-1) is #NUM!, and DATE(1899,12,29) reads 1899 as 3799. TEXT of a negative serial is slice 2. | D-0011, D-0012, D-0013 |
+| H-08 | CONFIRMED. DATE adds 1900 to a year in 0..1899; a year below 0 or at least 10000 is #NUM!. | D-0013, D-0015, D-0016, D-0017, D-0018, D-0019, D-0020 |
+| H-09 | CONFIRMED, with the split decided: approximate VLOOKUP/MATCH/LOOKUP binary-search sorted and unsorted data alike, taking the UPPER middle (keys 30,10,50,20,40 find 10 for 25). XLOOKUP -1 is linear. | L-0001, L-0002, L-0003, L-0004, L-0005, L-0006 |
+| H-10 | CONFIRMED. AND and OR do not short-circuit. | E-0193, E-0196 |
+| H-11 | CONFIRMED. An array in a scalar context takes its first element: =SUM({1,2}*{3,4}) is 3. CONCATENATE over a range joins every cell. | P-0023, E-0301 |
+| H-12 | CONFIRMED. Aggregates coerce literal text and booleans and skip them in references; an array literal behaves like a range (SUM({1,"2",TRUE}) is 1). | C-0034, C-0035, C-0036, C-0037, C-0038, C-0039, C-0040, C-0041, C-0042, E-0138 |
+| H-13 | CONFIRMED: number < text < boolean, and "1"=1 is FALSE. Criteria differ: a numeric criterion also matches numeric TEXT (COUNTIF(..., "20") counts the text "20"). | P-0013, C-0043, C-0044, C-0045, C-0055, C-0056, L-0007, L-0008, L-0009, E-0027, E-0030, E-0033, E-0035, E-0157, E-0222 |
+| H-14 | CONFIRMED. Text comparison and lookup are case-insensitive, non-ASCII letters included. | C-0046, C-0047, C-0048, L-0020, L-0021, E-0026, E-0029, E-0038, E-0056, E-0183, E-0241 |
+| H-15 | CONFIRMED for LEN (an emoji is 2). LEFT and MID are slice 2. | E-0309, E-0310, E-0317, E-0325 |
+| H-16 | CONFIRMED. #NULL! and #ERROR! are Sheets error literals (ERROR.TYPE 1 and 8); the lexer accepts both. | P-0030, P-0031 |
+| H-17 | REFUTED. The export keeps 15 significant digits (K-0002 reads 0.3), and some rows only 10 (SQRT(2) is 1.414213562); tiny values export as 0. Numeric goldens carry a tolerance, and four rows are compared at the precision they really hold. | K-0002, F-0003, F-0004, F-0019, F-0021, F-0023, F-0025, F-0026 |
+| H-18 | CONFIRMED. Only "TRUE"/"FALSE" text reads as a boolean; "0" and "yes" are #VALUE!. | C-0026, C-0027, C-0028, C-0029, C-0032, C-0033, E-0173, E-0194, E-0197, E-0200 |
+| H-19 | CONFIRMED. An empty cell is 0 against a number and "" against text. | C-0006, C-0017, C-0049, C-0050, C-0051, C-0052, L-0010, E-0036, E-0039, E-0041 |
+| H-20 | CONFIRMED. The first error in evaluation order wins. | C-0057, C-0058, C-0059, C-0060, C-0061 |
+| H-21 | CONFIRMED. References are accepted inside array literals; MOIC's SUMPRODUCT form works. | P-0029, A-0011, A-0025, A-0046 |
+| H-22 | REFUTED. INDEX past the range is #NUM! in Sheets, not the #REF! MOIC expected (case F); so is CHOOSE out of range. | E-0235, A-0029, A-0030, A-0031 |
+| H-23 | REFUTED IN PART. Fractions use the 15-digit general form (1/3 -> 0.333333333333333), but numbers from 1E+15 stay in full decimal notation with every digit past the 15th truncated to 0: 123456789012345678 is "123456789012345000", 1E+20 is "100000000000000000000". | C-0015, C-0019, C-0020, C-0021, F-0017, F-0018, F-0020, E-0302 |
+| H-24 | CONFIRMED, wider than guessed: "1,000", "$5", "(5)", "1e3" and " 2 " all coerce, and empty text "" is 0 in arithmetic. VALUE (E-0362) is slice 2. | P-0015, C-0001, C-0002, C-0003, C-0004, C-0008, C-0009, C-0010, C-0011, C-0012, C-0013, C-0014, S-0008, E-0362 |
+| H-25 | REFUTED. An open range spans the GRID: ROWS(B:B) is 1000. The engine sizes open ranges as a new sheet's 1000 x 26 grid, grown to the bound cells. | P-0027, L-0016, L-0017 |
+| H-26 | OPEN. Its rows use DATEVALUE, which is slice 2. | D-0021, D-0022 |
+| H-27 | CONFIRMED. INDEX(r,,c) is the whole column; MOIC's XLOOKUP form works. | E-0237, A-0003, A-0017, A-0022, A-0033, A-0038 |
+| H-28 | CONFIRMED. "=SUM(A1)" means the text SUM(A1); "==1+1" matches the text =1+1. | S-0011, S-0012, S-0013, S-0014 |
+| H-29 | CONFIRMED. MOD takes the sign of the divisor. | E-0109, E-0110 |
+| H-30 | CONFIRMED. CEILING(-2.5,2) is -2; FLOOR(2.5,-2) is #NUM!. | E-0084, E-0091 |
+| H-31 | REFUTED. IFERROR with the fallback omitted gives EMPTY, not "". | E-0186 |
+| H-32 | CONFIRMED. POWER(0,0) is 1. (Captured beside it: POWER(0,-1) is #NUM!, POWER(-8,1/3) is -2.) | E-0118 |
+| H-33 | CONFIRMED. SUMPRODUCT over arrays of different sizes is #VALUE!. | E-0063 |
+| H-34 | OPEN. Its row uses REPT, which is slice 2. | E-0312 |
+| H-35 | OPEN. Its rows use TYPE, which is slice 2. | E-0291, E-0292 |
 
 Also open, and decided outside the capture:
 
