@@ -12,8 +12,16 @@ consumer must do.
 
 ## [Unreleased]
 
-Nothing is released yet. This is phase P0: the contract and the oracle, with no
-evaluator. **There is nothing to install or upgrade.**
+## [0.0.1] - 2026-10-29
+
+**A PREVIEW, NOT AN ENGINE. It computes nothing.** Published so a tool layer
+(Prism's doMath) can depend on the frozen contract from Packagist while the
+real evaluator is built. `StubEngine` returns schema-valid output in which every
+result is `#N/A` with a "stub" detail and the engine string is
+`fancy-formula 0.0.0-stub`. **Never price, total or report anything with this
+version.** The first real evaluator is 0.1.0.
+
+This is phase P0: the contract and the oracle, with no evaluator.
 
 ### Fixed
 
