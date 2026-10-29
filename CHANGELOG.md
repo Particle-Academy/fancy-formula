@@ -12,8 +12,14 @@ consumer must do.
 
 ## [Unreleased]
 
-P1 slice 1: the first real evaluator, for the pricing set. Not yet released:
-0.1.0 is tagged only after the Google Sheets goldens pass.
+## [0.1.0] - 2026-10-29
+
+**The first real evaluator: P1 slice 1, the pricing set.** Verified against
+fancy-conformance 0.39.0's Google Sheets goldens: all 482 rows in scope pass,
+and 205 rows for slice-2 functions are skipped, each with a stated reason.
+Coming from 0.0.1: `StubEngine` is unchanged; construct `Engine` instead for
+real results (`new Engine()` works with defaults). A function outside the slice
+reports `FORMULA_UNKNOWN_FUNCTION` at check; it is never silently wrong.
 
 ### Added
 
