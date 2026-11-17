@@ -10,6 +10,13 @@ what it read and which lookup row it matched.
 > in `schema/` and the stable codes in `SPEC.md` are frozen at spec version 1.
 > Released 0.0.1 is the `StubEngine` preview only, and computes nothing.
 
+<!-- fancy-agents-note:start -->
+> **For agents.** This package is listed on the Fancy MCP catalog server at
+> `https://ui.particle.academy/mcp` (streamable HTTP, no API key; MCP id `fancy-ui`),
+> with install commands and docs, alongside the rest of the kit. How an agent
+> installs and uses this package is in [AGENTS.md](https://github.com/Particle-Academy/fancy-formula/blob/main/AGENTS.md).
+<!-- fancy-agents-note:end -->
+
 ## Why
 
 A pricing agent should not do quote maths in the model. It should hand a

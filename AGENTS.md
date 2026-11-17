@@ -1,86 +1,81 @@
-# AGENTS.md — fancy-formula
+# Using particle-academy/fancy-formula — guide for agents
 
-A deterministic spreadsheet-formula engine with **Google Sheets semantics**:
-one specification, one shared conformance table, PHP first and TypeScript and
-Python later — the fancy-expr layout. `CLAUDE.md` symlinks here.
+How an agent installs and uses this package in a consumer app. What the package
+is, is in [README.md](./README.md). Notes for working ON this repo's code are in
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
-This file describes **this repo's code**. Process rules — publishing, kit
-versioning, backports — live in the envelope and are deliberately not repeated.
+## Install
 
-## Read SPEC.md first
-
-`SPEC.md` is the specification. Implementations follow it, not each other. A
-disagreement between an implementation and SPEC.md is a bug in the
-implementation; a disagreement between SPEC.md and a Google Sheets capture is a
-bug in SPEC.md, and the capture wins.
-
-## Where things are
-
-```
-SPEC.md                         the specification (spec version 1)
-schema/*.schema.json            request, check-report, evaluation, trace: the frozen contract
-php/src/FormulaError.php        the stable codes; thrown only for parse codes
-php/src/StubEngine.php          P0 stand-in: schema-valid, computes nothing
-php/tests/Support/SchemaValidator.php   test-only JSON Schema subset validator
-scripts/capture/cases-v1.php    the capture rows (APPEND ONLY)
-scripts/capture/p1-functions.php        the P1 floor: function -> conformance suite
-scripts/capture/CaptureBuilder.php      rows -> holy-sheet schema + request.json
-scripts/build-capture-workbook.php      writes capture/v1/
-capture/v1/                     the workbook to upload, and its request.json
+```bash
+composer require particle-academy/fancy-formula
 ```
 
-`composer.json` and `phpunit.xml` sit at the ROOT (fancy-expr's trap: a
-`php/composer.json` is invisible to Packagist). Pest runs from `php/tests`, so
-the test command is `vendor/bin/pest --test-directory=php/tests`; plain
-`vendor/bin/pest` looks for `tests/` and exits on a missing directory.
+PHP 8.4+, no runtime dependencies. PHP only for now; TypeScript and Python ports
+are planned.
 
-## Invariants
+## Find it on the Fancy MCP server
 
-**Three outcomes, never collapsed.** Malformed input throws `FormulaError`; a
-spreadsheet error is a value; a broken limit aborts with no partial results. A
-parse failure must never become a `#ERROR!` value.
+The catalog server is `https://ui.particle.academy/mcp` (streamable HTTP, no API
+key; MCP id `fancy-ui`). It is listed as the registry entry `fancy-formula` (a
+package entry, not vendorable source). Find it with `search-backend-packages`
+(stack `php`).
 
-**Codes live in three places and a test holds them equal**: `FormulaError`'s
-constants, the schemas' enums, and SPEC.md. Adding a code means all three. The
-SPEC.md check is a token scan for `FORMULA_` words, so do not write a code name
-in SPEC.md that is not a code.
+## API essentials
 
-**Inputs are data.** No input value ever reaches the lexer. Text that looks like
-a formula stays text — in the engine, in the capture workbook (written as
-explicit string cells, never bare `=` strings that holy-sheet would promote),
-and in anything a host writes back out.
+Use it when an agent needs spreadsheet maths (a quote, a price break) done
+deterministically instead of in the model. Hand it formulas and typed inputs; get
+back values and a trace of what each output read and which lookup row matched.
 
-**The schema validator refuses keywords it does not know.** A validator that
-skipped one would pass every document that keyword exists to refuse. Adding a
-keyword to a schema means teaching `SchemaValidator`.
+```php
+use FancyFormula\{Engine, Options, Limits, FixedClock, Seed, FunctionPolicy};
 
-## The capture workbook
+$engine = new Engine;                   // defaults; or pass Options:
+$engine = new Engine(new Options(
+    limits:    Limits::defaults()->with(wallClockMs: 500),
+    clock:     new FixedClock('2026-10-27T09:00:00', 'Europe/London'),
+    random:    Seed::fromString('quote-8812'),
+    providers: [],                      // ExternalProvider[]
+    functions: FunctionPolicy::all(),   // or ::only([...]), ->deny([...])
+));
 
-Google Sheets is the only golden source. `cases-v1.php` is **append only**: ids
-(`P-0001`, `E-0123`, ...) are assigned in declaration order per prefix and are
-cited by SPEC.md, the schemas, and later fancy-conformance. `CaptureWorkbookTest`
-compares the builder's output with the committed `request.json`, so a reorder
-fails the build instead of silently renumbering.
+$report = $engine->check($request);     // CheckReport: static analysis, no values needed
+$result = $engine->evaluate($request);  // Evaluation: results + one trace per output
+json_encode($result);                   // schema-valid JSON
+```
 
-- Every formula must return a scalar. An array result would spill over the
-  TYPE / ERROR.TYPE / LEN probe columns beside it.
-- Formulas reach inputs by address (`Inputs!C2:D5`). The builder binds the same
-  addresses as cell-bound inputs in each row's engine request, merging
-  overlapping references into one rectangle and sizing an open range (`B:B`) to
-  its populated rows.
-- holy-sheet writes input floats through `number_format(.., 14)`: keep input
-  numbers to 14 decimal places or the workbook holds a different value from the
-  request.
-- holy-sheet writes real zip mtimes, so the xlsx is not byte-reproducible.
-  Rebuild only when cases change, and commit the xlsx and `request.json`
-  together; a test checks the digest pairs them.
-- Changing a hypothesis or its rows means regenerating SPEC.md section 13's
-  table: a test holds it to `request.json`.
+A request (`schema/request.schema.json`):
 
-## Why not a library
+```json
+{
+  "version": 1,
+  "formulas": { "unit_price": "=VLOOKUP(qty, price_breaks, 2, TRUE)" },
+  "inputs": {
+    "qty": { "type": "number", "value": 120, "constraints": { "integer": true, "min": 1 } },
+    "price_breaks": { "type": "range", "header": true,
+                      "rows": [["min_qty","unit_price"],[1,12.5],[50,11],[100,9.75],[500,8.4]] }
+  },
+  "trace": "lookups"
+}
+```
 
-PhpSpreadsheet targets Excel, with no Google Sheets mode; it has no static check
-step, no trace of which row matched, no function allowlist with provider
-injection, and no step or array budgets; it gives TypeScript and Python no shared
-semantics; and its dependency footprint is large for a sandboxed engine. So no
-approval request was filed (plan D14), and the grammar is ours.
+- `Engine::functions()` lists the supported functions.
+- `Formula::parse($source)` parses one formula on its own (`->references()`,
+  `->ast()`, `->normalized()`).
+- Exact signatures are in `SPEC.md` section 1.1; the JSON Schemas in `schema/`
+  are frozen at spec version 1.
+
+## Traps
+
+- **Three outcomes, never one.** A malformed formula throws `FormulaError` with a
+  stable `FORMULA_*` code; a spreadsheet error such as `#N/A` is a value in the
+  result; a broken limit aborts the whole run with no partial results. Handle
+  all three.
+- **Inputs are data.** An input value that looks like a formula stays text; it
+  is never evaluated.
+- **Policy belongs to the host.** Limits, clock, seed, providers and the
+  function allowlist are set when the engine is built; a request can only
+  tighten limits.
+- A function outside the implemented set reports `FORMULA_UNKNOWN_FUNCTION` at
+  `check()`. Run `check()` before trusting `evaluate()`.
+- `StubEngine` (from 0.0.1) computes nothing; construct `Engine`.
+- Semantics follow Google Sheets, not Excel.
