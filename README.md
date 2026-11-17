@@ -4,11 +4,11 @@ A deterministic spreadsheet-formula engine with **Google Sheets semantics**.
 Formulas are code; inputs are always values; every output carries a trace of
 what it read and which lookup row it matched.
 
-> **Status: P1 slice 1 on `main`, unreleased; 0.1.0 is tagged when it ships.**
+> **Status: P1 slice 1, released as 0.1.0 on Packagist.**
 > `Engine` evaluates the pricing set (SPEC.md section 15) and passes every
 > Google Sheets golden in its scope (fancy-conformance 0.39.0). The JSON Schemas
 > in `schema/` and the stable codes in `SPEC.md` are frozen at spec version 1.
-> Released 0.0.1 is the `StubEngine` preview only, and computes nothing.
+> The earlier 0.0.1 is the `StubEngine` preview only, and computes nothing.
 
 <!-- fancy-agents-note:start -->
 > **For agents.** This package is listed on the Fancy MCP catalog server at
